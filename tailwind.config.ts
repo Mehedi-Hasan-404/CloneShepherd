@@ -14,6 +14,7 @@ export default {
     },
     extend: {
       colors: {
+        // Design System Colors
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -38,6 +39,7 @@ export default {
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+          hover: "hsl(var(--accent-hover))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",
@@ -47,21 +49,35 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
-        },
+        
+        // IPTV App Specific Colors
+        'bg-primary': 'hsl(var(--bg-primary))',
+        'bg-secondary': 'hsl(var(--bg-secondary))',
+        'bg-tertiary': 'hsl(var(--bg-tertiary))',
+        'text-primary': 'hsl(var(--text-primary))',
+        'text-secondary': 'hsl(var(--text-secondary))',
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        DEFAULT: "var(--border-radius-sm)",
+        lg: "var(--border-radius)",
+        md: "calc(var(--border-radius) - 2px)",
+        sm: "calc(var(--border-radius-sm))",
+      },
+      spacing: {
+        'header': 'var(--header-height)',
+        'bottom-nav': 'var(--bottom-nav-height)',
+        'sidebar': 'var(--sidebar-width)',
+      },
+      boxShadow: {
+        'glow': 'var(--shadow-glow)',
+        'app-sm': 'var(--shadow-sm)',
+        'app-md': 'var(--shadow-md)',
+        'app-lg': 'var(--shadow-lg)',
+      },
+      transitionDuration: {
+        'fast': 'var(--transition-fast)',
+        'normal': 'var(--transition-normal)',
+        'slow': 'var(--transition-slow)',
       },
       keyframes: {
         "accordion-down": {

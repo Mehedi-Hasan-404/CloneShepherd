@@ -1,0 +1,34 @@
+import { Link } from 'react-router-dom';
+import { Category } from '@/types';
+import { Tv } from 'lucide-react';
+
+interface CategoryCardProps {
+  category: Category;
+}
+
+const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
+  return (
+    <Link to={`/category/${category.slug}`} className="category-card">
+      <div className="category-icon">
+        {category.iconUrl ? (
+          <img 
+            src={category.iconUrl} 
+            alt={category.name}
+            className="w-full h-full object-cover rounded-full"
+            onError={(e) => {
+              // Fallback to icon if image fails to load
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+            }}
+          />
+        ) : (
+          <Tv size={24} />
+        )}
+        <Tv size={24} className="hidden" />
+      </div>
+      <span className="category-name">{category.name}</span>
+    </Link>
+  );
+};
+
+export default CategoryCard;

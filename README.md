@@ -1,73 +1,154 @@
-# Welcome to your Lovable project
+# Live TV Pro - IPTV Streaming Platform
 
-## Project info
+A modern IPTV streaming application built with React, TypeScript, and Firebase. Stream live TV channels organized by categories with favorites management and admin controls.
 
-**URL**: https://lovable.dev/projects/9a6ed044-cf93-40a9-ac4e-0c0db1ca5877
+## Features
 
-## How can I edit this code?
+### User Features
+- **Category-based browsing** - Channels organized by categories
+- **Live streaming** - HLS video streaming with custom player controls
+- **Favorites system** - Save and manage favorite channels
+- **Recent viewing** - Track recently watched channels
+- **Search functionality** - Find channels quickly
+- **Responsive design** - Works on desktop and mobile
 
-There are several ways of editing your application.
+### Admin Features
+- **Category management** - Add, edit, delete channel categories
+- **Channel management** - Add, edit, delete streaming channels
+- **Authentication** - Secure admin access
+- **Stream URL management** - Support for M3U8 streams with auth cookies
 
-**Use Lovable**
+## Setup Instructions
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/9a6ed044-cf93-40a9-ac4e-0c0db1ca5877) and start prompting.
+### 1. Firebase Configuration
 
-Changes made via Lovable will be committed automatically to this repo.
+1. Create a new Firebase project at [https://console.firebase.google.com](https://console.firebase.google.com)
 
-**Use your preferred IDE**
+2. Enable **Authentication** and **Firestore Database**
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3. In Authentication > Sign-in method, enable **Email/Password**
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+4. Create an admin user in Authentication > Users
 
-Follow these steps:
+5. Get your Firebase config from Project Settings > General > Your apps > Web app
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+6. Update `src/lib/firebase.ts` with your Firebase configuration:
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```typescript
+const firebaseConfig = {
+  apiKey: "your-api-key",
+  authDomain: "your-project.firebaseapp.com",
+  projectId: "your-project-id",
+  storageBucket: "your-project.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "your-app-id"
+};
 ```
 
-**Edit a file directly in GitHub**
+### 2. Firestore Database Structure
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Create these collections in your Firestore database:
 
-**Use GitHub Codespaces**
+#### Categories Collection (`categories`)
+```javascript
+{
+  name: "Movies",           // Category name
+  slug: "movies",          // URL-friendly slug
+  iconUrl: "https://..."   // Category icon URL
+}
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+#### Channels Collection (`channels`)
+```javascript
+{
+  name: "Channel Name",        // Channel display name
+  logoUrl: "https://...",      // Channel logo URL
+  streamUrl: "https://...",    // M3U8 stream URL
+  categoryId: "categoryId",    // Reference to category
+  categoryName: "Movies",      // Category name for quick access
+  authCookie: "optional"       // Optional authentication cookie
+}
+```
 
-## What technologies are used for this project?
+### 3. Security Rules
 
-This project is built with:
+Add these Firestore security rules:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Categories - read-only for public, write for authenticated users
+    match /categories/{document} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Channels - read-only for public, write for authenticated users
+    match /channels/{document} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}
+```
 
-## How can I deploy this project?
+### 4. Installation & Development
 
-Simply open [Lovable](https://lovable.dev/projects/9a6ed044-cf93-40a9-ac4e-0c0db1ca5877) and click on Share -> Publish.
+```bash
+# Install dependencies
+npm install
 
-## Can I connect a custom domain to my Lovable project?
+# Start development server
+npm run dev
 
-Yes, you can!
+# Build for production
+npm run build
+```
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Admin Access
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+1. Navigate to `/admin`
+2. Sign in with your Firebase admin credentials
+3. Manage categories and channels from the admin dashboard
+
+## Technology Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS with custom design system
+- **Video Streaming**: HLS.js for M3U8 stream playback
+- **Backend**: Firebase (Authentication + Firestore)
+- **Icons**: Lucide React
+- **Routing**: React Router DOM
+
+## Project Structure
+
+```
+src/
+├── components/          # Reusable UI components
+├── contexts/           # React contexts (Favorites, Recents)
+├── hooks/              # Custom React hooks
+├── lib/                # Firebase configuration
+├── pages/              # Page components
+├── types/              # TypeScript type definitions
+└── App.tsx             # Main application component
+```
+
+## Stream Format Support
+
+- **HLS (HTTP Live Streaming)** - Primary format (.m3u8)
+- **Authentication** - Support for cookie-based auth
+- **Adaptive bitrate** - Automatic quality adjustment
+- **Cross-browser compatibility** - Works in modern browsers
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Create a pull request
+
+## License
+
+This project is open source and available under the MIT License.

@@ -1,0 +1,60 @@
+import { Link } from 'react-router-dom';
+import { Play, Star } from 'lucide-react';
+import { PublicChannel } from '@/types';
+import { useFavorites } from '@/contexts/FavoritesContext';
+
+interface ChannelCardProps {
+  channel: PublicChannel;
+}
+
+const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
+  const { isFavorite, addFavorite, removeFavorite } = useFavorites();
+  const isChannelFavorite = isFavorite(channel.id);
+
+  const handleFavoriteClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isChannelFavorite) {
+      removeFavorite(channel.id);
+    } else {
+      addFavorite(channel);
+    }
+  };
+
+  return (
+    <Link to={`/channel/${channel.id}`} className="channel-card">
+      <div className="channel-thumbnail">
+        <img
+          src={channel.logoUrl}
+          alt={`${channel.name} logo`}
+          onError={(e) => {
+            e.currentTarget.src = '/api/placeholder/200/113';
+          }}
+        />
+        <div className="play-overlay">
+          <div className="play-btn-overlay">
+            <Play size={20} fill="white" />
+          </div>
+        </div>
+        <button
+          onClick={handleFavoriteClick}
+          className={`absolute top-2 right-2 p-1.5 rounded-full transition-all z-10 ${
+            isChannelFavorite
+              ? 'bg-yellow-500 text-white'
+              : 'bg-black/50 text-white hover:bg-black/70'
+          }`}
+          aria-label={isChannelFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          <Star size={14} fill={isChannelFavorite ? 'white' : 'none'} />
+        </button>
+      </div>
+      <div className="channel-info">
+        <div className="channel-name">{channel.name}</div>
+        <div className="channel-category">{channel.categoryName}</div>
+      </div>
+    </Link>
+  );
+};
+
+export default ChannelCard;

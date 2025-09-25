@@ -3,7 +3,14 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
+import { FavoritesProvider } from "@/contexts/FavoritesContext";
+import { RecentsProvider } from "@/contexts/RecentsContext";
+import Layout from "@/components/Layout";
+import Home from "@/pages/Home";
+import Favorites from "@/pages/Favorites";
+import CategoryChannels from "@/pages/CategoryChannels";
+import ChannelPlayer from "@/pages/ChannelPlayer";
+import Admin from "@/pages/Admin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -14,11 +21,18 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <FavoritesProvider>
+          <RecentsProvider>
+            <Routes>
+              <Route path="/" element={<Layout><Home /></Layout>} />
+              <Route path="/favorites" element={<Layout><Favorites /></Layout>} />
+              <Route path="/category/:slug" element={<Layout><CategoryChannels /></Layout>} />
+              <Route path="/channel/:channelId" element={<Layout><ChannelPlayer /></Layout>} />
+              <Route path="/admin/*" element={<Admin />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </RecentsProvider>
+        </FavoritesProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
