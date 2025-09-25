@@ -20,11 +20,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       icon: Star,
       label: 'Favorites',
     },
-    {
-      path: '/admin',
-      icon: Shield,
-      label: 'Admin Panel',
-    },
   ];
 
   return (

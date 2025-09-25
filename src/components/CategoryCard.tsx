@@ -8,8 +8,8 @@ interface CategoryCardProps {
 
 const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
   return (
-    <Link to={`/category/${category.slug}`} className="category-card">
-      <div className="category-icon">
+    <Link to={`/category/${category.slug}`} className="category-card hover-lift animate-fade-in">
+      <div className="category-icon hover-scale">
         {category.iconUrl ? (
           <img 
             src={category.iconUrl} 

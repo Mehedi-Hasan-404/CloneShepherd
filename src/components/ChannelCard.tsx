@@ -23,7 +23,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
   };
 
   return (
-    <Link to={`/channel/${channel.id}`} className="channel-card">
+    <Link to={`/channel/${channel.id}`} className="channel-card hover-lift animate-fade-in">
       <div className="channel-thumbnail">
         <img
           src={channel.logoUrl}
@@ -33,15 +33,15 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
           }}
         />
         <div className="play-overlay">
-          <div className="play-btn-overlay">
+          <div className="play-btn-overlay hover-scale">
             <Play size={20} fill="white" />
           </div>
         </div>
         <button
           onClick={handleFavoriteClick}
-          className={`absolute top-2 right-2 p-1.5 rounded-full transition-all z-10 ${
+          className={`absolute top-2 right-2 p-1.5 rounded-full transition-all z-10 hover-scale ${
             isChannelFavorite
-              ? 'bg-yellow-500 text-white'
+              ? 'bg-yellow-500 text-white animate-bounce'
               : 'bg-black/50 text-white hover:bg-black/70'
           }`}
           aria-label={isChannelFavorite ? 'Remove from favorites' : 'Add to favorites'}
