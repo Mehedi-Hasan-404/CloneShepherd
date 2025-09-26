@@ -1,67 +1,90 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Tv, Info } from 'lucide-react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useRecents } from '@/contexts/RecentsContext';
+import { PublicChannel, AdminChannel } from '@/types';
+
+import VideoPlayer from '@/components/VideoPlayer';
+import ChannelCard from '@/components/ChannelCard';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import ChannelCard from '@/components/ChannelCard';
-import type { PublicChannel } from '@/types';
+import { ArrowLeft, Tv, Info } from 'lucide-react';
 
 const ChannelPlayer = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
-  const [channel, setChannel] = useState<PublicChannel | null>(null);
+  const { addRecent } = useRecents();
+
+  const [channel, setChannel] = useState<AdminChannel | null>(null);
   const [relatedChannels, setRelatedChannels] = useState<PublicChannel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Mock data for demonstration
-    const mockChannel: PublicChannel = {
-      id: channelId || '1',
-      name: 'Sample Channel',
-      logoUrl: '/placeholder.svg',
-      categoryId: '1',
-      categoryName: 'Entertainment'
+    const fetchChannelData = async () => {
+      if (!channelId) return;
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch the main channel
+        const channelDocRef = doc(db, 'channels', channelId);
+        const channelDoc = await getDoc(channelDocRef);
+
+        if (!channelDoc.exists()) {
+          setError('Channel not found.');
+          return;
+        }
+
+        const channelData = { id: channelDoc.id, ...channelDoc.data() } as AdminChannel;
+        setChannel(channelData);
+        addRecent(channelData);
+
+        // Fetch related channels from the same category
+        const channelsCol = collection(db, 'channels');
+        const relatedQuery = query(
+          channelsCol,
+          where('categoryId', '==', channelData.categoryId),
+          where('__name__', '!=', channelId),
+          limit(4)
+        );
+        const relatedSnapshot = await getDocs(relatedQuery);
+        const relatedData = relatedSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as PublicChannel[];
+        setRelatedChannels(relatedData);
+
+      } catch (err) {
+        console.error("Error fetching channel data:", err);
+        setError('Failed to load channel data.');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const mockRelated: PublicChannel[] = [
-      {
-        id: '2',
-        name: 'Related Channel 1',
-        logoUrl: '/placeholder.svg',
-        categoryId: '1',
-        categoryName: 'Entertainment'
-      },
-      {
-        id: '3',
-        name: 'Related Channel 2',
-        logoUrl: '/placeholder.svg',
-        categoryId: '1',
-        categoryName: 'Entertainment'
-      }
-    ];
-
-    setChannel(mockChannel);
-    setRelatedChannels(mockRelated);
-    setLoading(false);
-  }, [channelId]);
+    fetchChannelData();
+  }, [channelId, addRecent]);
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-[calc(100vh-200px)] items-center justify-center">
         <div className="text-center">
-          <Tv className="mx-auto h-12 w-12 text-muted-foreground" />
+          <Tv className="mx-auto h-12 w-12 animate-pulse text-muted-foreground" />
           <p className="mt-2 text-muted-foreground">Loading channel...</p>
         </div>
       </div>
     );
   }
 
-  if (!channel) {
+  if (error || !channel) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-[calc(100vh-200px)] items-center justify-center">
         <div className="text-center">
-          <Info className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h2 className="mt-2 text-lg font-semibold">Channel not found</h2>
+          <Info className="mx-auto h-12 w-12 text-destructive" />
+          <h2 className="mt-2 text-lg font-semibold">{error || 'Channel not found'}</h2>
           <Button onClick={() => navigate('/')} className="mt-4">
             Go Home
           </Button>
@@ -71,52 +94,48 @@ const ChannelPlayer = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-card">
-        <div className="mx-auto max-w-6xl px-4 py-4">
-          <Button 
-            variant="ghost" 
-            onClick={() => navigate(-1)}
-            className="mb-4"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-          
-          <div className="flex items-center gap-4">
-            <img
-              src={channel.logoUrl}
-              alt={channel.name}
-              className="h-16 w-16 rounded-lg object-cover"
-              onError={(e) => {
-                e.currentTarget.src = '/placeholder.svg';
-              }}
-            />
-            <div>
-              <h1 className="text-2xl font-bold">{channel.name}</h1>
-              <p className="text-muted-foreground">{channel.categoryName}</p>
-            </div>
+    <div className="animate-fade-in">
+      <div className="mb-4">
+        <Button
+          variant="ghost"
+          onClick={() => navigate(-1)}
+          className="mb-4"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to {channel.categoryName}
+        </Button>
+
+        <div className="flex items-center gap-4">
+          <img
+            src={channel.logoUrl}
+            alt={channel.name}
+            className="h-16 w-16 rounded-lg object-contain bg-card p-1"
+            onError={(e) => {
+              e.currentTarget.src = '/placeholder.svg';
+            }}
+          />
+          <div>
+            <h1 className="text-2xl font-bold">{channel.name}</h1>
+            <Link to={`/category/${channel.categoryName.toLowerCase()}`} className="text-muted-foreground hover:underline">
+              {channel.categoryName}
+            </Link>
           </div>
         </div>
       </div>
 
       {/* Video Player Area */}
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <Card className="aspect-video overflow-hidden">
-          <div className="flex h-full items-center justify-center bg-muted">
-            <div className="text-center">
-              <Tv className="mx-auto h-16 w-16 text-muted-foreground" />
-              <p className="mt-2 text-lg font-semibold">Video Player</p>
-              <p className="text-muted-foreground">Stream would appear here</p>
-            </div>
-          </div>
-        </Card>
-      </div>
+      <Card className="aspect-video overflow-hidden mb-8">
+        <VideoPlayer
+          streamUrl={channel.streamUrl}
+          channelName={channel.name}
+          autoPlay
+          muted
+        />
+      </Card>
 
       {/* Related Channels */}
       {relatedChannels.length > 0 && (
-        <div className="mx-auto max-w-6xl px-4 py-6">
+        <div>
           <h3 className="mb-4 text-xl font-bold">More from {channel.categoryName}</h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {relatedChannels.map(relatedChannel => (
