@@ -295,6 +295,20 @@
     to { transform: rotate(360deg); }
   }
 
+  /* Sidebar */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: hsl(var(--bg-secondary));
+    transform: translateX(-100%);
+    transition: transform var(--transition-normal);
+    z-index: 2000;
+    box-shadow: var(--shadow-lg);
+  }
+
   .sidebar.open {
     transform: translateX(0);
   }
