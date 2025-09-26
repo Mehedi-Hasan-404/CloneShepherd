@@ -1,4 +1,4 @@
-import { X, Home, Star, Settings, Shield } from 'lucide-react';
+import { X, Home, Star, Settings, Shield, Tv } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
@@ -35,18 +35,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       {/* Sidebar */}
       <div className={`sidebar ${isOpen ? 'open' : ''}`}>
         <div className="p-4 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">TV</span>
-              </div>
-              <span className="font-semibold text-text-primary">Live TV Pro</span>
+          <div className="sidebar-header-animate flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Tv size={24} className="text-accent animate-pulse" />
+              <span className="text-xl font-bold animate-fade-in">Live TV Pro</span>
             </div>
             <button
               onClick={onClose}
-              className="p-1 hover:bg-bg-tertiary rounded transition-colors"
+              className="p-2 hover:bg-bg-tertiary rounded-lg transition-all duration-300 hover-scale"
+              aria-label="Close sidebar"
             >
-              <X size={20} />
+              <X size={20} className="animate-scale-in" />
             </button>
           </div>
         </div>

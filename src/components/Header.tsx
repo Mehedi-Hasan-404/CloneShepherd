@@ -9,15 +9,15 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const { theme, setTheme } = useTheme();
 
   return (
-    <header className="app-header animate-slide-in-left">
-      <div className="logo-section">
-        <Tv size={24} className="text-accent hover-glow" />
-        <span>Live TV Pro</span>
+    <header className="app-header header-animate">
+      <div className="logo-section animate-fade-in">
+        <Tv size={24} className="text-accent hover-glow animate-pulse" />
+        <span className="animate-slide-in-left">Live TV Pro</span>
       </div>
       <div className="flex items-center gap-3">
         <button
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="p-2 hover:bg-bg-tertiary rounded-lg transition-all duration-300 hover-scale"
+          className="theme-toggle p-2 rounded-lg"
           title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
         >
           {theme === 'dark' ? (
@@ -27,7 +27,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           )}
         </button>
         <button 
-          className="menu-btn hover-scale"
+          className="menu-btn hover-scale animate-fade-in"
           onClick={onMenuClick}
           aria-label="Open menu"
         >

@@ -222,18 +222,77 @@
     color: hsl(var(--accent-hover));
   }
 
-  /* Sidebar */
-  .sidebar {
-    position: fixed;
-    top: 0;
+  /* Interactive Elements */
+  .story-link {
+    position: relative;
+    display: inline-block;
+  }
+  
+  .story-link::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    bottom: 0;
     left: 0;
-    width: var(--sidebar-width);
-    height: 100vh;
-    background: hsl(var(--bg-secondary));
-    transform: translateX(-100%);
-    transition: transform var(--transition-normal);
-    z-index: 2000;
-    box-shadow: var(--shadow-lg);
+    background-color: hsl(var(--primary));
+    transform: scaleX(0);
+    transform-origin: bottom right;
+    transition: transform 0.3s ease-out;
+  }
+  
+  .story-link:hover::after {
+    transform: scaleX(1);
+    transform-origin: bottom left;
+  }
+  
+  .hover-scale {
+    transition: transform 0.2s ease-out;
+  }
+  
+  .hover-scale:hover {
+    transform: scale(1.05);
+  }
+  
+  .hover-glow {
+    transition: all 0.3s ease-out;
+  }
+  
+  .hover-glow:hover {
+    filter: drop-shadow(0 0 8px hsl(var(--accent)));
+    transform: scale(1.1);
+  }
+
+  /* Theme Toggle Animation */
+  .theme-toggle {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .theme-toggle:hover {
+    background: hsl(var(--accent) / 0.1);
+    transform: rotate(180deg);
+  }
+  
+  /* Header Animation */
+  .header-animate {
+    animation: slide-in-top 0.6s ease-out;
+  }
+  
+  /* Sidebar Header Animation */
+  .sidebar-header-animate {
+    animation: fade-in-scale 0.5s ease-out;
+  }
+
+  /* Loading optimization */
+  .loading-spinner {
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .sidebar.open {

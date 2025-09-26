@@ -16,15 +16,26 @@ const Home = () => {
         setLoading(true);
         const categoriesCol = collection(db, 'categories');
         const q = query(categoriesCol, orderBy('name'));
-        const snapshot = await getDocs(q);
-        const categoriesData = snapshot.docs.map(doc => ({
+        
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), 5000)
+        );
+        
+        const fetchPromise = getDocs(q);
+        const snapshot = await Promise.race([fetchPromise, timeoutPromise]) as any;
+        
+        const categoriesData = snapshot.docs.map((doc: any) => ({
           id: doc.id,
           ...doc.data()
         })) as Category[];
+        
         setCategories(categoriesData);
       } catch (err) {
         console.error('Error fetching categories:', err);
         setError('Failed to load categories');
+        // Set empty categories to prevent loading forever
+        setCategories([]);
       } finally {
         setLoading(false);
       }
