@@ -1,133 +1,70 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { AdminChannel, PublicChannel } from '@/types';
-import VideoPlayer from '@/components/VideoPlayer';
-import ChannelCard from '@/components/ChannelCard';
-import { useRecents } from '@/contexts/RecentsContext';
 import { ArrowLeft, Tv, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import ChannelCard from '@/components/ChannelCard';
+import type { PublicChannel } from '@/types';
 
 const ChannelPlayer = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
-  const { addRecent } = useRecents();
-  const [channel, setChannel] = useState<AdminChannel | null>(null);
+  const [channel, setChannel] = useState<PublicChannel | null>(null);
   const [relatedChannels, setRelatedChannels] = useState<PublicChannel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchChannelData = async () => {
-      if (!channelId) {
-        setError('No channel ID provided');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Fetch channel data
-        const channelDoc = doc(db, 'channels', channelId);
-        const channelSnap = await getDoc(channelDoc);
-        
-        if (!channelSnap.exists()) {
-          setError('Channel not found');
-          setLoading(false);
-          return;
-        }
-
-        const channelData = {
-          id: channelSnap.id,
-          ...channelSnap.data()
-        } as AdminChannel;
-
-        // Validate required fields
-        if (!channelData.streamUrl || !channelData.name) {
-          setError('Channel data is incomplete');
-          setLoading(false);
-          return;
-        }
-        
-        setChannel(channelData);
-
-        // Add to recent channels
-        addRecent({
-          id: channelData.id,
-          name: channelData.name,
-          logoUrl: channelData.logoUrl,
-          categoryId: channelData.categoryId,
-          categoryName: channelData.categoryName,
-        });
-
-        // Fetch related channels from same category
-        if (channelData.categoryId) {
-          try {
-            const channelsCol = collection(db, 'channels');
-            const relatedQuery = query(
-              channelsCol,
-              where('categoryId', '==', channelData.categoryId),
-              orderBy('name'),
-              limit(8)
-            );
-            const relatedSnapshot = await getDocs(relatedQuery);
-            
-            const relatedData = relatedSnapshot.docs
-              .map(doc => ({
-                id: doc.id,
-                name: doc.data().name,
-                logoUrl: doc.data().logoUrl,
-                categoryId: doc.data().categoryId,
-                categoryName: doc.data().categoryName,
-              }))
-              .filter(ch => ch.id !== channelId) as PublicChannel[];
-            
-            setRelatedChannels(relatedData);
-          } catch (relatedError) {
-            console.warn('Failed to load related channels:', relatedError);
-            // Don't set error for related channels failure
-          }
-        }
-
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching channel:', err);
-        setError('Failed to load channel');
-        setLoading(false);
-      }
+    // Mock data for demonstration
+    const mockChannel: PublicChannel = {
+      id: channelId || '1',
+      name: 'Sample Channel',
+      logoUrl: '/placeholder.svg',
+      categoryId: '1',
+      categoryName: 'Entertainment'
     };
 
-    fetchChannelData();
-  }, [channelId, addRecent]);
+    const mockRelated: PublicChannel[] = [
+      {
+        id: '2',
+        name: 'Related Channel 1',
+        logoUrl: '/placeholder.svg',
+        categoryId: '1',
+        categoryName: 'Entertainment'
+      },
+      {
+        id: '3',
+        name: 'Related Channel 2',
+        logoUrl: '/placeholder.svg',
+        categoryId: '1',
+        categoryName: 'Entertainment'
+      }
+    ];
 
-  // Loading state
+    setChannel(mockChannel);
+    setRelatedChannels(mockRelated);
+    setLoading(false);
+  }, [channelId]);
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="loading-spinner mb-4"></div>
-          <p className="text-text-secondary">Loading channel...</p>
+          <Tv className="mx-auto h-12 w-12 text-muted-foreground" />
+          <p className="mt-2 text-muted-foreground">Loading channel...</p>
         </div>
       </div>
     );
   }
 
-  // Error state
-  if (error || !channel) {
+  if (!channel) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <Tv size={48} className="text-accent mb-4 mx-auto" />
-          <h3 className="text-xl font-semibold mb-2">Channel Not Available</h3>
-          <p className="text-text-secondary mb-4">{error || 'The requested channel could not be found.'}</p>
-          <button 
-            onClick={() => navigate('/')}
-            className="btn-primary"
-          >
-            Back to Home
-          </button>
+          <Info className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h2 className="mt-2 text-lg font-semibold">Channel not found</h2>
+          <Button onClick={() => navigate('/')} className="mt-4">
+            Go Home
+          </Button>
         </div>
       </div>
     );
@@ -135,69 +72,56 @@ const ChannelPlayer = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Back Button */}
-      <div className="p-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-text-secondary hover:text-accent transition-colors mb-4"
-        >
-          <ArrowLeft size={20} />
-          <span>Back</span>
-        </button>
-      </div>
-
-      {/* Video Player Section */}
-      <div className="px-4 mb-6">
-        <div className="w-full max-w-6xl mx-auto">
-          <VideoPlayer 
-            streamUrl={channel.streamUrl} 
-            channelName={channel.name}
-            key={channel.id} // Force re-mount when channel changes
-          />
-        </div>
-      </div>
-
-      {/* Channel Info */}
-      <div className="px-4 mb-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="bg-card border border-border rounded-lg p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0">
-                <img
-                  src={channel.logoUrl}
-                  alt={`${channel.name} logo`}
-                  className="w-16 h-16 object-contain rounded-lg bg-bg-tertiary"
-                  onError={(e) => {
-                    e.currentTarget.src = '/placeholder.svg';
-                  }}
-                />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-xl font-bold mb-2">{channel.name}</h2>
-                <div className="flex items-center gap-2 text-text-secondary mb-2">
-                  <Info size={16} />
-                  <span>Category: {channel.categoryName}</span>
-                </div>
-                <div className="flex items-center gap-2 text-green-400">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-medium">LIVE</span>
-                </div>
-              </div>
+      {/* Header */}
+      <div className="border-b bg-card">
+        <div className="mx-auto max-w-6xl px-4 py-4">
+          <Button 
+            variant="ghost" 
+            onClick={() => navigate(-1)}
+            className="mb-4"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+          
+          <div className="flex items-center gap-4">
+            <img
+              src={channel.logoUrl}
+              alt={channel.name}
+              className="h-16 w-16 rounded-lg object-cover"
+              onError={(e) => {
+                e.currentTarget.src = '/placeholder.svg';
+              }}
+            />
+            <div>
+              <h1 className="text-2xl font-bold">{channel.name}</h1>
+              <p className="text-muted-foreground">{channel.categoryName}</p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Video Player Area */}
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        <Card className="aspect-video overflow-hidden">
+          <div className="flex h-full items-center justify-center bg-muted">
+            <div className="text-center">
+              <Tv className="mx-auto h-16 w-16 text-muted-foreground" />
+              <p className="mt-2 text-lg font-semibold">Video Player</p>
+              <p className="text-muted-foreground">Stream would appear here</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
       {/* Related Channels */}
       {relatedChannels.length > 0 && (
-        <div className="px-4 pb-20"> {/* Extra padding for bottom nav */}
-          <div className="max-w-6xl mx-auto">
-            <h3 className="text-xl font-bold mb-4">More from {channel.categoryName}</h3>
-            <div className="channel-grid">
-              {relatedChannels.map(relatedChannel => (
-                <ChannelCard key={relatedChannel.id} channel={relatedChannel} />
-              ))}
-            </div>
+        <div className="mx-auto max-w-6xl px-4 py-6">
+          <h3 className="mb-4 text-xl font-bold">More from {channel.categoryName}</h3>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {relatedChannels.map(relatedChannel => (
+              <ChannelCard key={relatedChannel.id} channel={relatedChannel} />
+            ))}
           </div>
         </div>
       )}
