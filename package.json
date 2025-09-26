@@ -9,7 +9,13 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview"
+  }, 
+  "dependencies": {
+    "hls.js": "^1.4.12"
   },
+  "devDependencies": {
+    "@types/hls.js": "^1.0.4"
+  }
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",
