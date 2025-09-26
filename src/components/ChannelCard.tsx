@@ -22,8 +22,17 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
     }
   };
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Only navigate if the click target is not the button or its children
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) {
+      e.preventDefault();
+      return;
+    }
+  };
+
   return (
-    <Link to={`/channel/${channel.id}`} className="channel-card hover-lift animate-fade-in">
+    <Link to={`/channel/${channel.id}`} className="channel-card hover-lift animate-fade-in" onClick={handleCardClick}>
       <div className="channel-thumbnail">
         <img
           src={channel.logoUrl}
