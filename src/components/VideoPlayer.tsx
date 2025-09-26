@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 
@@ -13,232 +13,231 @@ interface VideoPlayerProps {
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   streamUrl, 
   channelName, 
-  autoPlay = true, 
-  muted = false,
+  autoPlay = false, // Changed to false to prevent autoplay issues
+  muted = true, // Changed to true to prevent audio issues
   className = ""
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isInitializingRef = useRef(false);
-  const retryCountRef = useRef(0);
   const mountedRef = useRef(true);
+  const lastStreamUrl = useRef<string>('');
+  
+  // Simple state management to prevent flickering
+  const [playerState, setPlayerState] = useState({
+    isPlaying: false,
+    isMuted: muted,
+    isLoading: false,
+    error: null as string | null,
+    isFullscreen: false,
+    showControls: true,
+    volume: muted ? 0 : 0.8,
+    canPlay: false
+  });
 
-  // Stable state to prevent flickering
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(muted);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [volume, setVolume] = useState(muted ? 0 : 0.5);
-
-  // Memoize stream URL to prevent unnecessary re-initialization
-  const stableStreamUrl = useMemo(() => streamUrl, [streamUrl]);
-
-  // Cleanup function
-  const cleanup = useCallback(() => {
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-      controlsTimeoutRef.current = null;
-    }
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
+  // Destroy HLS instance cleanly
+  const destroyHLS = useCallback(() => {
     if (hlsRef.current) {
       try {
         hlsRef.current.destroy();
       } catch (e) {
-        console.warn('HLS cleanup error:', e);
+        console.warn('HLS destroy error:', e);
       }
       hlsRef.current = null;
     }
-    isInitializingRef.current = false;
   }, []);
 
-  // Retry with exponential backoff
-  const retryStream = useCallback(() => {
-    if (!mountedRef.current || retryCountRef.current >= 3) {
-      if (mountedRef.current) {
-        setError('Failed to load stream after multiple attempts');
-        setIsLoading(false);
-      }
+  // Initialize video player
+  const initializePlayer = useCallback(async () => {
+    if (!streamUrl || !videoRef.current || !mountedRef.current) {
       return;
     }
 
-    retryCountRef.current++;
-    setError(null);
-    
-    retryTimeoutRef.current = setTimeout(() => {
-      if (mountedRef.current && !isInitializingRef.current) {
-        initializePlayer();
-      }
-    }, Math.min(1000 * Math.pow(2, retryCountRef.current), 5000));
-  }, []);
-
-  // Initialize player - only once per URL change
-  const initializePlayer = useCallback(() => {
-    if (!mountedRef.current || isInitializingRef.current || !stableStreamUrl) {
+    // Skip if same URL is already loaded
+    if (streamUrl === lastStreamUrl.current && playerState.canPlay) {
       return;
     }
 
     const video = videoRef.current;
-    if (!video) return;
-
-    isInitializingRef.current = true;
-    setIsLoading(true);
-    setError(null);
 
     // Clean up previous instance
-    cleanup();
+    destroyHLS();
+    
+    // Reset video element
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
 
-    // Check HLS support
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 30,
-        maxBufferLength: 60,
-        maxBufferSize: 60 * 1000 * 1000,
-        startLevel: -1,
-        debug: false,
-        fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 10000,
-        levelLoadingTimeOut: 10000,
-      });
+    // Update state to loading
+    setPlayerState(prev => ({
+      ...prev,
+      isLoading: true,
+      error: null,
+      canPlay: false,
+      isPlaying: false
+    }));
 
-      hlsRef.current = hls;
+    lastStreamUrl.current = streamUrl;
 
-      // Set up event listeners
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (!mountedRef.current) return;
-        
-        console.log('Stream loaded successfully');
-        setIsLoading(false);
-        isInitializingRef.current = false;
-        retryCountRef.current = 0;
+    try {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: false, // Disable worker to prevent issues
+          lowLatencyMode: false, // Disable low latency for stability
+          backBufferLength: 30,
+          maxBufferLength: 60,
+          startLevel: -1,
+          debug: false,
+          autoStartLoad: true,
+          capLevelToPlayerSize: true,
+          maxLoadingDelay: 4,
+          maxBufferSize: 60 * 1000 * 1000,
+          fragLoadingTimeOut: 20000,
+          manifestLoadingTimeOut: 10000
+        });
 
-        // Set initial properties
-        video.volume = volume;
-        video.muted = isMuted;
+        hlsRef.current = hls;
 
-        // Auto-play if enabled
-        if (autoPlay) {
-          const playPromise = video.play();
-          if (playPromise) {
-            playPromise.catch(err => {
+        // Handle successful manifest parsing
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!mountedRef.current) return;
+          
+          console.log('Stream manifest loaded');
+          
+          // Set video properties
+          video.volume = playerState.volume;
+          video.muted = playerState.isMuted;
+
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            canPlay: true,
+            error: null
+          }));
+
+          // Auto-play if enabled
+          if (autoPlay) {
+            video.play().catch(err => {
               console.warn('Autoplay prevented:', err);
-              setIsLoading(false);
             });
           }
-        } else {
-          setIsLoading(false);
-        }
-      });
+        });
 
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (!mountedRef.current) return;
+        // Handle errors
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (!mountedRef.current) return;
 
-        console.error('HLS Error:', data.type, data.details, data.fatal);
-        
-        if (data.fatal) {
-          isInitializingRef.current = false;
+          console.error('HLS Error:', data.type, data.details);
           
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              console.log('Network error - attempting retry');
-              retryStream();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.log('Media error - attempting recovery');
-              try {
-                hls.recoverMediaError();
-              } catch (e) {
-                retryStream();
-              }
-              break;
-            default:
-              setError('Stream is currently unavailable');
-              setIsLoading(false);
-              break;
+          if (data.fatal) {
+            setPlayerState(prev => ({
+              ...prev,
+              isLoading: false,
+              error: `Stream error: ${data.details}`,
+              canPlay: false
+            }));
           }
-        }
-      });
+        });
 
-      // Load and attach media
-      try {
-        hls.loadSource(stableStreamUrl);
+        // Load the stream
+        hls.loadSource(streamUrl);
         hls.attachMedia(video);
-      } catch (err) {
-        console.error('Failed to load stream:', err);
-        setError('Failed to initialize stream');
-        setIsLoading(false);
-        isInitializingRef.current = false;
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari)
+        video.src = streamUrl;
+        
+        const handleLoadedData = () => {
+          if (!mountedRef.current) return;
+          
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            canPlay: true,
+            error: null
+          }));
+
+          if (autoPlay) {
+            video.play().catch(err => {
+              console.warn('Autoplay prevented:', err);
+            });
+          }
+          
+          video.removeEventListener('loadeddata', handleLoadedData);
+        };
+
+        const handleError = () => {
+          if (!mountedRef.current) return;
+          
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            error: 'Failed to load stream',
+            canPlay: false
+          }));
+          
+          video.removeEventListener('error', handleError);
+        };
+
+        video.addEventListener('loadeddata', handleLoadedData);
+        video.addEventListener('error', handleError);
+        
+      } else {
+        setPlayerState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Video streaming not supported in this browser',
+          canPlay: false
+        }));
       }
-
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS support (Safari)
-      video.src = stableStreamUrl;
-      
-      const handleLoadStart = () => {
-        if (mountedRef.current) {
-          setIsLoading(true);
-        }
-      };
-
-      const handleCanPlay = () => {
-        if (!mountedRef.current) return;
-        setIsLoading(false);
-        isInitializingRef.current = false;
-        retryCountRef.current = 0;
-        
-        if (autoPlay) {
-          video.play().catch(err => {
-            console.warn('Autoplay prevented:', err);
-          });
-        }
-        
-        video.removeEventListener('canplay', handleCanPlay);
-        video.removeEventListener('loadstart', handleLoadStart);
-      };
-
-      const handleError = () => {
-        if (!mountedRef.current) return;
-        console.error('Native video error');
-        isInitializingRef.current = false;
-        retryStream();
-        
-        video.removeEventListener('error', handleError);
-        video.removeEventListener('loadstart', handleLoadStart);
-      };
-
-      video.addEventListener('loadstart', handleLoadStart);
-      video.addEventListener('canplay', handleCanPlay);
-      video.addEventListener('error', handleError);
-      
-    } else {
-      setError('Video streaming is not supported in this browser');
-      setIsLoading(false);
-      isInitializingRef.current = false;
+    } catch (err) {
+      console.error('Player initialization error:', err);
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: 'Failed to initialize player',
+        canPlay: false
+      }));
     }
-  }, [stableStreamUrl, autoPlay, volume, isMuted, cleanup, retryStream]);
+  }, [streamUrl, autoPlay, playerState.volume, playerState.isMuted, destroyHLS]);
 
   // Video event handlers
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handlePlay = () => mountedRef.current && setIsPlaying(true);
-    const handlePause = () => mountedRef.current && setIsPlaying(false);
-    const handleWaiting = () => mountedRef.current && setIsLoading(true);
-    const handleCanPlay = () => mountedRef.current && setIsLoading(false);
+    const handlePlay = () => {
+      if (mountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isPlaying: true }));
+      }
+    };
+
+    const handlePause = () => {
+      if (mountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      }
+    };
+
+    const handleWaiting = () => {
+      if (mountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isLoading: true }));
+      }
+    };
+
+    const handleCanPlay = () => {
+      if (mountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
     const handleVolumeChange = () => {
       if (mountedRef.current) {
-        setVolume(video.volume);
-        setIsMuted(video.muted);
+        setPlayerState(prev => ({
+          ...prev,
+          volume: video.volume,
+          isMuted: video.muted
+        }));
       }
     };
 
@@ -257,11 +256,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
+  // Initialize player when stream URL changes
+  useEffect(() => {
+    if (streamUrl) {
+      const timer = setTimeout(() => {
+        initializePlayer();
+      }, 500); // Delay to prevent rapid initialization
+
+      return () => clearTimeout(timer);
+    }
+  }, [streamUrl, initializePlayer]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      destroyHLS();
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [destroyHLS]);
+
   // Fullscreen handler
   useEffect(() => {
     const handleFullscreenChange = () => {
       if (mountedRef.current) {
-        setIsFullscreen(!!document.fullscreenElement);
+        setPlayerState(prev => ({
+          ...prev,
+          isFullscreen: !!document.fullscreenElement
+        }));
       }
     };
 
@@ -269,43 +293,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Initialize player when URL changes
-  useEffect(() => {
-    if (stableStreamUrl) {
-      // Small delay to prevent rapid re-initialization
-      const initTimer = setTimeout(() => {
-        if (mountedRef.current) {
-          initializePlayer();
-        }
-      }, 100);
-
-      return () => clearTimeout(initTimer);
-    }
-  }, [stableStreamUrl, initializePlayer]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      cleanup();
-    };
-  }, [cleanup]);
-
-  // Control handlers
+  // Control functions
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
-    if (!video || isLoading) return;
+    if (!video || playerState.isLoading || !playerState.canPlay) return;
 
-    if (isPlaying) {
+    if (playerState.isPlaying) {
       video.pause();
     } else {
       video.play().catch(err => {
-        console.error('Play failed:', err);
-        setError('Unable to play stream');
+        console.error('Play error:', err);
+        setPlayerState(prev => ({ 
+          ...prev, 
+          error: 'Unable to play stream' 
+        }));
       });
     }
-  }, [isPlaying, isLoading]);
+  }, [playerState.isPlaying, playerState.isLoading, playerState.canPlay]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -317,9 +321,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
     
-    const clampedVolume = Math.max(0, Math.min(1, newVolume));
-    video.volume = clampedVolume;
-    video.muted = clampedVolume === 0;
+    const volume = Math.max(0, Math.min(1, newVolume));
+    video.volume = volume;
+    video.muted = volume === 0;
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
@@ -333,54 +337,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         await container.requestFullscreen();
       }
     } catch (err) {
-      console.error('Fullscreen toggle failed:', err);
+      console.error('Fullscreen error:', err);
     }
   }, []);
 
-  // Controls visibility with debouncing
+  const handleRetry = useCallback(() => {
+    lastStreamUrl.current = '';
+    initializePlayer();
+  }, [initializePlayer]);
+
+  // Controls visibility
   const showControlsTemporarily = useCallback(() => {
-    setShowControls(true);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
     
     if (controlsTimeoutRef.current) {
       clearTimeout(controlsTimeoutRef.current);
     }
 
     controlsTimeoutRef.current = setTimeout(() => {
-      if (mountedRef.current && isPlaying) {
-        setShowControls(false);
+      if (mountedRef.current && playerState.isPlaying) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, 3000);
-  }, [isPlaying]);
+  }, [playerState.isPlaying]);
 
   const handleMouseMove = useCallback(() => {
     showControlsTemporarily();
   }, [showControlsTemporarily]);
 
   const handleMouseLeave = useCallback(() => {
-    if (isPlaying) {
-      setShowControls(false);
+    if (playerState.isPlaying) {
+      setPlayerState(prev => ({ ...prev, showControls: false }));
     }
-  }, [isPlaying]);
-
-  const handleRetry = useCallback(() => {
-    retryCountRef.current = 0;
-    setError(null);
-    initializePlayer();
-  }, [initializePlayer]);
+  }, [playerState.isPlaying]);
 
   // Error state
-  if (error) {
+  if (playerState.error) {
     return (
-      <div className={`video-player flex items-center justify-center bg-black min-h-[300px] ${className}`}>
-        <div className="text-center text-white p-8">
-          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
-          <div className="text-lg font-semibold mb-2">Stream Unavailable</div>
-          <div className="text-sm text-gray-400 mb-4">{error}</div>
+      <div className={`aspect-video bg-black flex items-center justify-center ${className}`}>
+        <div className="text-center text-white p-6">
+          <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-400" />
+          <div className="text-lg font-medium mb-2">Stream Error</div>
+          <div className="text-sm text-gray-300 mb-4">{playerState.error}</div>
           <button 
             onClick={handleRetry}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
           >
-            <RotateCcw size={16} />
+            <RotateCcw size={14} />
             Retry
           </button>
         </div>
@@ -391,7 +394,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div 
       ref={containerRef}
-      className={`video-player relative bg-black ${isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'} ${className}`}
+      className={`relative bg-black ${playerState.isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'} ${className}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
@@ -400,117 +403,109 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         className="w-full h-full object-contain"
         playsInline
         preload="none"
-        muted={isMuted}
+        controls={false}
       />
 
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+      {/* Loading overlay */}
+      {playerState.isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
           <div className="text-center text-white">
-            <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin" />
-            <div className="text-sm font-medium">Loading stream...</div>
-            {retryCountRef.current > 0 && (
-              <div className="text-xs text-gray-400 mt-1">
-                Attempt {retryCountRef.current}/3
-              </div>
-            )}
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <div className="text-sm">Loading stream...</div>
           </div>
         </div>
       )}
 
-      {/* Controls Overlay */}
-      {(!isLoading || showControls) && (
-        <div 
-          className={`absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 transition-opacity duration-300 ${
-            showControls || !isPlaying ? 'opacity-100' : 'opacity-0'
-          }`}
-          onClick={togglePlay}
-        >
-          {/* Top Info */}
-          <div className="absolute top-4 left-4 right-4 pointer-events-none">
-            <div className="text-white font-semibold text-lg">{channelName}</div>
-            <div className="flex items-center gap-2 text-red-400 text-sm font-medium mt-1">
-              <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></div>
-              LIVE
-            </div>
-          </div>
-
-          {/* Center Play Button */}
-          {!isPlaying && !isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="pointer-events-auto">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    togglePlay();
-                  }}
-                  className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-all"
-                >
-                  <Play size={32} fill="white" className="ml-1" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Bottom Controls */}
-          <div className="absolute bottom-4 left-4 right-4 pointer-events-none">
-            <div className="flex items-center gap-4 pointer-events-auto">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                className="text-white hover:text-blue-400 transition-colors p-2 rounded"
-                disabled={isLoading}
-              >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleMute();
-                  }}
-                  className="text-white hover:text-blue-400 transition-colors p-2 rounded"
-                >
-                  {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                </button>
-                
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    handleVolumeChange(parseFloat(e.target.value));
-                  }}
-                  className="w-20 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer
-                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
-                    [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
-                    [&::-webkit-slider-thumb]:cursor-pointer"
-                />
-              </div>
-
-              <div className="flex-1" />
-
-              <div className="text-white/70 text-sm">Auto Quality</div>
-
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFullscreen();
-                }}
-                className="text-white hover:text-blue-400 transition-colors p-2 rounded"
-              >
-                {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-              </button>
-            </div>
+      {/* Controls overlay */}
+      <div 
+        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 transition-opacity duration-300 ${
+          playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
+        }`}
+        onClick={togglePlay}
+      >
+        {/* Channel info */}
+        <div className="absolute top-4 left-4 pointer-events-none">
+          <div className="text-white font-medium text-lg">{channelName}</div>
+          <div className="flex items-center gap-2 text-red-400 text-sm mt-1">
+            <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></div>
+            LIVE
           </div>
         </div>
-      )}
+
+        {/* Play button */}
+        {!playerState.isPlaying && !playerState.isLoading && playerState.canPlay && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto"
+            >
+              <Play size={24} fill="white" className="ml-1" />
+            </button>
+          </div>
+        )}
+
+        {/* Bottom controls */}
+        <div className="absolute bottom-4 left-4 right-4 pointer-events-none">
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+              disabled={!playerState.canPlay}
+            >
+              {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleMute();
+              }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+            >
+              {playerState.isMuted || playerState.volume === 0 ? 
+                <VolumeX size={18} /> : 
+                <Volume2 size={18} />
+              }
+            </button>
+
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={playerState.isMuted ? 0 : playerState.volume}
+              onChange={(e) => {
+                e.stopPropagation();
+                handleVolumeChange(parseFloat(e.target.value));
+              }}
+              className="w-16 h-1 bg-white bg-opacity-30 rounded-lg appearance-none cursor-pointer
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
+                [&::-webkit-slider-thumb]:cursor-pointer"
+            />
+
+            <div className="flex-1"></div>
+
+            <span className="text-white text-opacity-70 text-sm">Auto Quality</span>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFullscreen();
+              }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+            >
+              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
