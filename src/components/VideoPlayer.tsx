@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
 
 interface VideoPlayerProps {
@@ -10,7 +9,7 @@ interface VideoPlayerProps {
   className?: string;
 }
 
-const PLAYER_LOAD_TIMEOUT = 15000; // 15 seconds
+const PLAYER_LOAD_TIMEOUT = 30000; // 30 seconds
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
   streamUrl,
@@ -20,7 +19,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   className = ""
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const hlsRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -38,7 +37,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const destroyHLS = useCallback(() => {
     if (hlsRef.current) {
-      hlsRef.current.destroy();
+      try {
+        hlsRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS instance:', e);
+      }
       hlsRef.current = null;
     }
     if (loadingTimeoutRef.current) {
@@ -46,110 +49,187 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  const initializePlayer = useCallback(() => {
-    if (!streamUrl || !videoRef.current) return;
+  const loadHLS = useCallback(() => {
+    return new Promise<void>((resolve, reject) => {
+      // Try to load HLS.js dynamically
+      if (window.Hls) {
+        resolve();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load HLS.js'));
+      document.head.appendChild(script);
+    });
+  }, []);
+
+  const initializePlayer = useCallback(async () => {
+    if (!streamUrl || !videoRef.current) {
+      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
+      return;
+    }
 
     const video = videoRef.current;
     destroyHLS();
 
     setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false }));
 
+    // Set loading timeout
     loadingTimeoutRef.current = setTimeout(() => {
-        if (isMountedRef.current) {
-            setPlayerState(prev => ({
-                ...prev,
-                isLoading: false,
-                error: "Stream timed out. Please try again.",
-            }));
-            destroyHLS();
-        }
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: "Stream took too long to load. Please try again.",
+        }));
+        destroyHLS();
+      }
     }, PLAYER_LOAD_TIMEOUT);
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        maxBufferLength: 30,
-        maxBufferSize: 60 * 1000 * 1000,
-        fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 10000,
-      });
-      hlsRef.current = hls;
+    try {
+      // Validate stream URL
+      if (!streamUrl.includes('m3u8') && !streamUrl.includes('mp4')) {
+        throw new Error('Invalid stream URL format');
+      }
 
-      hls.loadSource(streamUrl);
-      hls.attachMedia(video);
+      // Try to load HLS.js
+      await loadHLS();
+      const Hls = window.Hls;
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (!isMountedRef.current) return;
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      if (Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          maxBufferLength: 30,
+          maxBufferSize: 60 * 1000 * 1000,
+          fragLoadingTimeOut: 20000,
+          manifestLoadingTimeOut: 10000,
+          enableWorker: false,
+        });
         
-        video.muted = playerState.isMuted;
-        video.volume = playerState.volume;
-        if (autoPlay) {
-          video.play().catch(() => console.warn('Autoplay was prevented.'));
-        }
-        setPlayerState(prev => ({ ...prev, isLoading: false }));
-      });
+        hlsRef.current = hls;
 
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (!isMountedRef.current) return;
-        console.error('HLS Error:', data.type, data.details);
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
 
-        if (data.fatal) {
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-          switch(data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              setPlayerState(prev => ({ ...prev, isLoading: false, error: `Network error: ${data.details}` }));
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              setPlayerState(prev => ({ ...prev, isLoading: false, error: `Media error: ${data.details}` }));
-              hls.recoverMediaError();
-              break;
-            default:
-              setPlayerState(prev => ({ ...prev, isLoading: false, error: `Stream error: ${data.details}` }));
-              destroyHLS();
-              break;
+          
+          video.muted = playerState.isMuted;
+          video.volume = playerState.volume;
+          
+          if (autoPlay) {
+            video.play().catch((e) => {
+              console.warn('Autoplay was prevented:', e);
+              setPlayerState(prev => ({ ...prev, error: 'Click play to start the stream' }));
+            });
           }
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl;
-      const onLoadedMetadata = () => {
-        if (!isMountedRef.current) return;
+          setPlayerState(prev => ({ ...prev, isLoading: false, error: null }));
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isMountedRef.current) return;
+          console.error('HLS Error:', data.type, data.details, data);
+
+          if (data.fatal) {
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            let errorMessage = 'Stream playback failed';
+            
+            switch(data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                errorMessage = 'Network error - check your connection';
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                errorMessage = 'Media error - trying to recover...';
+                hls.recoverMediaError();
+                return; // Don't set error state yet
+              default:
+                errorMessage = `Stream error: ${data.details}`;
+                break;
+            }
+            
+            setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
+            destroyHLS();
+          }
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari)
+        video.src = streamUrl;
+        
+        const onLoadedMetadata = () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+          video.muted = playerState.isMuted;
+          video.volume = playerState.volume;
+          
+          if (autoPlay) {
+            video.play().catch((e) => {
+              console.warn('Autoplay was prevented:', e);
+            });
+          }
+          setPlayerState(prev => ({ ...prev, isLoading: false, error: null }));
+        };
+
+        const onError = () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+          setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream' }));
+        };
+
+        video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+        video.addEventListener('error', onError, { once: true });
+        
+      } else {
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        video.muted = playerState.isMuted;
-        if (autoPlay) {
-          video.play().catch(() => console.warn('Autoplay was prevented.'));
-        }
-        setPlayerState(prev => ({ ...prev, isLoading: false }));
-      };
-      video.addEventListener('loadedmetadata', onLoadedMetadata);
-    } else {
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        setPlayerState(prev => ({ ...prev, isLoading: false, error: "HLS is not supported in this browser." }));
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: "HLS streams are not supported in this browser. Please try a different browser." 
+        }));
+      }
+
+    } catch (error) {
+      console.error('Player initialization error:', error);
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: error instanceof Error ? error.message : 'Failed to initialize player' 
+      }));
     }
-  }, [streamUrl, autoPlay, playerState.isMuted, playerState.volume, destroyHLS]);
+  }, [streamUrl, autoPlay, playerState.isMuted, playerState.volume, destroyHLS, loadHLS]);
 
   useEffect(() => {
     isMountedRef.current = true;
     initializePlayer();
+    
     return () => {
       isMountedRef.current = false;
       destroyHLS();
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
   }, [streamUrl, initializePlayer]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
     const handlePlay = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: true }));
     const handlePause = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: false }));
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
     const handleVolumeChange = () => {
-        if (isMountedRef.current && video) {
-            setPlayerState(prev => ({ ...prev, volume: video.volume, isMuted: video.muted }));
-        }
+      if (isMountedRef.current && video) {
+        setPlayerState(prev => ({ ...prev, volume: video.volume, isMuted: video.muted }));
+      }
     };
-    const handleFullscreenChange = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
+    const handleFullscreenChange = () => {
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
+      }
+    };
 
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
@@ -171,7 +251,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.paused ? video.play() : video.pause();
+    
+    if (video.paused) {
+      video.play().catch(console.error);
+    } else {
+      video.pause();
+    }
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -191,6 +276,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
+    
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
@@ -209,9 +295,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const showControlsTemporarily = useCallback(() => {
     if (!isMountedRef.current) return;
     setPlayerState(prev => ({ ...prev, showControls: true }));
+    
     if (controlsTimeoutRef.current) {
       clearTimeout(controlsTimeoutRef.current);
     }
+    
     controlsTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current && playerState.isPlaying) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
@@ -229,7 +317,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.isPlaying]);
 
-  if (playerState.error) {
+  // Error state
+  if (playerState.error && !playerState.isLoading) {
     return (
       <div className={`aspect-video bg-black flex items-center justify-center ${className}`}>
         <div className="text-center text-white p-6">
@@ -342,5 +431,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
+
+// Extend window interface for HLS.js
+declare global {
+  interface Window {
+    Hls: any;
+  }
+}
 
 export default VideoPlayer;
