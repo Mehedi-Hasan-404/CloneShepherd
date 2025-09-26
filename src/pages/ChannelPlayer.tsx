@@ -29,7 +29,6 @@ const ChannelPlayer = () => {
         setLoading(true);
         setError(null);
 
-        // Fetch the main channel
         const channelDocRef = doc(db, 'channels', channelId);
         const channelDoc = await getDoc(channelDocRef);
 
@@ -40,9 +39,11 @@ const ChannelPlayer = () => {
 
         const channelData = { id: channelDoc.id, ...channelDoc.data() } as AdminChannel;
         setChannel(channelData);
-        addRecent(channelData);
+        
+        // Add to recents, excluding admin-only fields for type safety
+        const { streamUrl, authCookie, ...publicChannelData } = channelData;
+        addRecent(publicChannelData);
 
-        // Fetch related channels from the same category
         const channelsCol = collection(db, 'channels');
         const relatedQuery = query(
           channelsCol,
@@ -104,7 +105,7 @@ const ChannelPlayer = () => {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to {channel.categoryName}
         </Button>
-
+        
         <div className="flex items-center gap-4">
           <img
             src={channel.logoUrl}
@@ -116,24 +117,20 @@ const ChannelPlayer = () => {
           />
           <div>
             <h1 className="text-2xl font-bold">{channel.name}</h1>
-            <Link to={`/category/${channel.categoryName.toLowerCase()}`} className="text-muted-foreground hover:underline">
+            <Link to={`/category/${channel.categoryName.toLowerCase().replace(/\s+/g, '-')}`} className="text-muted-foreground hover:underline">
               {channel.categoryName}
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Video Player Area */}
       <Card className="aspect-video overflow-hidden mb-8">
         <VideoPlayer
           streamUrl={channel.streamUrl}
           channelName={channel.name}
-          autoPlay
-          muted
         />
       </Card>
 
-      {/* Related Channels */}
       {relatedChannels.length > 0 && (
         <div>
           <h3 className="mb-4 text-xl font-bold">More from {channel.categoryName}</h3>
@@ -149,3 +146,4 @@ const ChannelPlayer = () => {
 };
 
 export default ChannelPlayer;
+
