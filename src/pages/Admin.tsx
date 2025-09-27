@@ -6,10 +6,10 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy 
 import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Category, AdminChannel } from '@/types';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon } from 'lucide-react';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon, Tv, Users, BarChart3 } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
 
-// Login Component (same as before)
+// Login Component
 const AdminLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,7 +49,7 @@ const AdminLogin = () => {
           <p className="text-text-secondary">Sign in to manage your IPTV system</p>
         </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <input
               type="email"
@@ -88,7 +88,7 @@ const AdminLogin = () => {
   );
 };
 
-// Categories Manager Component (Updated with M3U support)
+// Categories Manager Component
 const CategoriesManager = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -119,17 +119,11 @@ const CategoriesManager = () => {
     try {
       const categoriesCol = collection(db, 'categories');
       const q = query(categoriesCol, orderBy('name'));
-      
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-      
-      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const snapshot = await getDocs(q);
       const categoriesData = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       })) as Category[];
-      
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -274,10 +268,13 @@ const CategoriesManager = () => {
               type="text"
               value={newCategory.name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="e.g., Sports, Movies, News"
+              placeholder="e.g., Sports, News, Entertainment, Movies"
               className="form-input"
               disabled={loading}
             />
+            <p className="text-xs text-text-secondary mt-1">
+              This will be the category that contains channels
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">URL Slug</label>
@@ -294,7 +291,7 @@ const CategoriesManager = () => {
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">Icon URL</label>
+            <label className="block text-sm font-medium mb-2">Category Icon URL (Optional)</label>
             <input
               type="url"
               value={newCategory.iconUrl}
@@ -306,21 +303,19 @@ const CategoriesManager = () => {
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">
-              M3U Playlist URL
-              <span className="ml-1 text-green-500">
-                <LinkIcon size={14} className="inline" />
-              </span>
+              M3U Playlist URL (Optional)
+              <LinkIcon size={14} className="inline ml-1 text-green-500" />
             </label>
             <input
               type="url"
               value={newCategory.m3uUrl}
               onChange={(e) => setNewCategory({ ...newCategory, m3uUrl: e.target.value })}
-              placeholder="https://example.com/playlist.m3u8"
+              placeholder="https://example.com/playlist.m3u"
               className="form-input"
               disabled={loading}
             />
             <p className="text-xs text-text-secondary mt-1">
-              Optional: Add M3U playlist URL to automatically import channels
+              Paste your M3U playlist URL here. All channels will be automatically imported.
             </p>
           </div>
         </div>
@@ -422,7 +417,7 @@ const CategoriesManager = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button
+                                    <button
                     onClick={() => handleEditCategory(category)}
                     className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
                     title="Edit category"
@@ -446,7 +441,7 @@ const CategoriesManager = () => {
   );
 };
 
-// Channels Manager Component (Updated)
+// Channels Manager Component
 const ChannelsManager = () => {
   const [channels, setChannels] = useState<AdminChannel[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -469,17 +464,11 @@ const ChannelsManager = () => {
     try {
       const channelsCol = collection(db, 'channels');
       const q = query(channelsCol, orderBy('name'));
-      
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-      
-      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const snapshot = await getDocs(q);
       const channelsData = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       })) as AdminChannel[];
-      
       setChannels(channelsData);
     } catch (error) {
       console.error('Error fetching channels:', error);
@@ -493,17 +482,11 @@ const ChannelsManager = () => {
     try {
       const categoriesCol = collection(db, 'categories');
       const q = query(categoriesCol, orderBy('name'));
-      
-            const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
-      );
-      
-      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const snapshot = await getDocs(q);
       const categoriesData = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       })) as Category[];
-      
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -609,7 +592,7 @@ const ChannelsManager = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Channels Management</h2>
+        <h2 className="text-2xl font-bold">Manual Channels Management</h2>
         <div className="text-sm text-text-secondary">
           Manual channels only. M3U channels are managed via category playlists.
         </div>
@@ -618,7 +601,7 @@ const ChannelsManager = () => {
       {/* Add/Edit Form */}
       <div className="bg-card border border-border rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">
-          {editingChannel ? 'Edit Channel' : 'Add New Channel'}
+          {editingChannel ? 'Edit Channel' : 'Add New Manual Channel'}
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -644,7 +627,7 @@ const ChannelsManager = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">Stream URL (m3u8) *</label>
+            <label className="block text-sm font-medium mb-2">Stream URL (m3u8/mp4) *</label>
             <input
               type="url"
               value={newChannel.streamUrl}
@@ -755,9 +738,7 @@ const ChannelsManager = () => {
                     <div className="font-medium">{channel.name}</div>
                     <div className="text-sm text-text-secondary flex items-center gap-2">
                       <span>{channel.categoryName}</span>
-                      {channel.streamUrl && (
-                        <span className="text-green-500">• Manual</span>
-                      )}
+                      <span className="text-blue-500">• Manual</span>
                     </div>
                   </div>
                 </div>
@@ -833,9 +814,9 @@ const AdminDashboard = () => {
   };
 
   const navItems = [
-    { path: '/admin', label: 'Dashboard', exact: true },
-    { path: '/admin/categories', label: 'Categories' },
-    { path: '/admin/channels', label: 'Manual Channels' },
+    { path: '/admin', label: 'Dashboard', icon: BarChart3, exact: true },
+    { path: '/admin/categories', label: 'Categories', icon: Tv },
+    { path: '/admin/channels', label: 'Manual Channels', icon: Users },
   ];
 
   return (
@@ -859,7 +840,7 @@ const AdminDashboard = () => {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto p-4">
+            <div className="max-w-7xl mx-auto p-4">
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar Navigation */}
           <div className="lg:w-64 flex-shrink-0">
@@ -874,12 +855,13 @@ const AdminDashboard = () => {
                     <li key={item.path}>
                       <Link
                         to={item.path}
-                        className={`block p-3 rounded-lg transition-colors ${
+                        className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
                           isActive
                             ? 'bg-accent text-white'
                             : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
                         }`}
                       >
+                        <item.icon size={20} />
                         {item.label}
                       </Link>
                     </li>
@@ -899,25 +881,42 @@ const AdminDashboard = () => {
                   {/* Stats Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">Total Categories</h3>
-                      <div className="text-3xl font-bold text-accent">{stats.totalCategories}</div>
-                      <p className="text-sm text-text-secondary mt-1">
-                        {stats.m3uCategories} with M3U playlists
-                                      </p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-semibold mb-2">Total Categories</h3>
+                          <div className="text-3xl font-bold text-accent">{stats.totalCategories}</div>
+                          <p className="text-sm text-text-secondary mt-1">
+                            {stats.m3uCategories} with M3U playlists
+                          </p>
+                        </div>
+                        <Tv size={32} className="text-accent opacity-20" />
+                      </div>
                     </div>
+                    
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">Manual Channels</h3>
-                      <div className="text-3xl font-bold text-accent">{stats.totalChannels}</div>
-                      <p className="text-sm text-text-secondary mt-1">
-                        Manually added channels
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-semibold mb-2">Manual Channels</h3>
+                          <div className="text-3xl font-bold text-accent">{stats.totalChannels}</div>
+                          <p className="text-sm text-text-secondary mt-1">
+                            Manually added channels
+                          </p>
+                        </div>
+                        <Users size={32} className="text-accent opacity-20" />
+                      </div>
                     </div>
+                    
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">M3U Categories</h3>
-                      <div className="text-3xl font-bold text-green-500">{stats.m3uCategories}</div>
-                      <p className="text-sm text-text-secondary mt-1">
-                        Categories with playlists
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-lg font-semibold mb-2">M3U Categories</h3>
+                          <div className="text-3xl font-bold text-green-500">{stats.m3uCategories}</div>
+                          <p className="text-sm text-text-secondary mt-1">
+                            Categories with playlists
+                          </p>
+                        </div>
+                        <LinkIcon size={32} className="text-green-500 opacity-20" />
+                      </div>
                     </div>
                   </div>
 
@@ -933,50 +932,108 @@ const AdminDashboard = () => {
                           <Plus size={16} />
                           Add Manual Channel
                         </Link>
+                        <button 
+                          onClick={fetchStats}
+                          className="btn-secondary w-full justify-start"
+                        >
+                          <BarChart3 size={16} />
+                          Refresh Statistics
+                        </button>
                       </div>
                     </div>
                     
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-4">System Info</h3>
+                      <h3 className="text-lg font-semibold mb-4">System Information</h3>
                       <div className="text-text-secondary space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span>IPTV Management System</span>
-                          <span>v2.0.0</span>
+                          <span className="font-medium">v2.0.0</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Admin:</span>
-                          <span>{user?.email}</span>
+                          <span>Admin User:</span>
+                          <span className="font-medium">{user?.email}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>M3U Support:</span>
-                          <span className="text-green-500">Enabled</span>
+                          <span className="text-green-500 font-medium">Enabled</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Status:</span>
-                          <span className="text-green-500">Online</span>
+                          <span>Firebase Status:</span>
+                          <span className="text-green-500 font-medium">Connected</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>System Status:</span>
+                          <span className="text-green-500 font-medium">Online</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
                   <div className="bg-card border border-border rounded-lg p-6">
-                    <h3 className="text-lg font-semibold mb-4">Important Notes</h3>
-                    <div className="text-text-secondary text-sm space-y-3">
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                        <p><strong>M3U Playlists:</strong> Add M3U playlist URLs to categories to automatically import channels with their logos and stream URLs.</p>
+                    <h3 className="text-lg font-semibold mb-4">Important Notes & Features</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-text-secondary text-sm">
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">M3U Playlists:</strong> Add M3U playlist URLs to categories to automatically import channels with their logos and stream URLs.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">Manual Channels:</strong> Use manual channel creation for individual channels or when M3U playlists are not available.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">Stream Formats:</strong> Both M3U8 (HLS) and MP4 formats are supported for streaming.</p>
+                        </div>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                        <p><strong>Manual Channels:</strong> Use manual channel creation for individual channels or when M3U playlists are not available.</p>
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">Category Slugs:</strong> Auto-generated from category names for SEO-friendly URLs.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">Video Player:</strong> Built-in HLS.js support for seamless M3U8 stream playback.</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                          <p><strong className="text-text-primary">Firebase Integration:</strong> All data is securely stored in Firebase Firestore.</p>
+                        </div>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                        <p><strong>Stream URLs:</strong> Both M3U8 and MP4 formats are supported for streaming.</p>
+                    </div>
+                  </div>
+
+                  {/* Recent Activity */}
+                  <div className="bg-card border border-border rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">Getting Started</h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
+                        <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-white text-sm font-bold">1</div>
+                        <div>
+                          <div className="font-medium">Create Categories</div>
+                          <div className="text-sm text-text-secondary">Start by creating categories like "Sports", "News", "Entertainment"</div>
+                        </div>
                       </div>
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                        <p><strong>Category Slugs:</strong> Auto-generated from category names for SEO-friendly URLs.</p>
+                      <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
+                        <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-white text-sm font-bold">2</div>
+                        <div>
+                          <div className="font-medium">Add M3U Playlists</div>
+                          <div className="text-sm text-text-secondary">Paste M3U playlist URLs to automatically import channels</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
+                        <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-white text-sm font-bold">3</div>
+                        <div>
+                          <div className="font-medium">Add Manual Channels</div>
+                          <div className="text-sm text-text-secondary">Create individual channels for streams not in playlists</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">✓</div>
+                        <div>
+                          <div className="font-medium">Ready to Stream</div>
+                          <div className="text-sm text-text-secondary">Your IPTV system is ready for users to browse and watch</div>
+                        </div>
                       </div>
                     </div>
                   </div>
