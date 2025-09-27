@@ -93,15 +93,7 @@ export type Database = {
           user_agent?: string | null
           watch_duration?: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "channel_analytics_channel_id_fkey"
-            columns: ["channel_id"]
-            isOneToOne: false
-            referencedRelation: "channels"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       channels: {
         Row: {

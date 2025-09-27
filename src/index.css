@@ -107,7 +107,9 @@
     padding-top: var(--header-height);
     padding-bottom: var(--bottom-nav-height);
     line-height: 1.5;
-    transition: background-color var(--transition-normal), color var(--transition-normal);
+    transition: background-color 0.15s ease, color 0.15s ease;
+    transform: translateZ(0); /* Force hardware acceleration */
+    backface-visibility: hidden;
   }
 
   body.fullscreen-mode {
@@ -263,16 +265,17 @@
     transform: scale(1.1);
   }
 
-  /* Theme Toggle Animation */
+  /* Theme Toggle Animation - Optimized */
   .theme-toggle {
     position: relative;
     overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    will-change: transform;
   }
   
   .theme-toggle:hover {
     background: hsl(var(--accent) / 0.1);
-    transform: rotate(180deg);
+    transform: scale(1.05);
   }
   
   /* Header Animation */

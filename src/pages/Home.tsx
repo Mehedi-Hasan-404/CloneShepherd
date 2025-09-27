@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getCategories } from '@/services/supabaseService';
 import { Category } from '@/types';
 import CategoryCard from '@/components/CategoryCard';
 import { Tv } from 'lucide-react';
@@ -14,27 +13,11 @@ const Home = () => {
     const fetchCategories = async () => {
       try {
         setLoading(true);
-        const categoriesCol = collection(db, 'categories');
-        const q = query(categoriesCol, orderBy('name'));
-        
-        // Add timeout to prevent infinite loading
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Request timeout')), 5000)
-        );
-        
-        const fetchPromise = getDocs(q);
-        const snapshot = await Promise.race([fetchPromise, timeoutPromise]) as any;
-        
-        const categoriesData = snapshot.docs.map((doc: any) => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Category[];
-        
+        const categoriesData = await getCategories();
         setCategories(categoriesData);
       } catch (err) {
         console.error('Error fetching categories:', err);
         setError('Failed to load categories');
-        // Set empty categories to prevent loading forever
         setCategories([]);
       } finally {
         setLoading(false);
