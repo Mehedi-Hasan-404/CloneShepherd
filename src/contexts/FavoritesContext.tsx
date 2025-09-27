@@ -1,5 +1,7 @@
+// /src/contexts/FavoritesContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { FavoriteChannel } from '@/types';
+import { toast } from "@/components/ui/sonner";
 
 interface FavoritesContextType {
   favorites: FavoriteChannel[];
@@ -48,10 +50,29 @@ export const FavoritesProvider: React.FC<FavoritesProviderProps> = ({ children }
       addedAt: Date.now(),
     };
     setFavorites(prev => [...prev.filter(fav => fav.id !== channel.id), newFavorite]);
+    
+    toast.success("Added to favorites", {
+      description: `${channel.name} has been added to your favorites.`,
+      action: {
+        label: "Undo",
+        onClick: () => removeFavorite(channel.id),
+      },
+    });
   };
 
   const removeFavorite = (channelId: string) => {
+    const channel = favorites.find(fav => fav.id === channelId);
     setFavorites(prev => prev.filter(fav => fav.id !== channelId));
+    
+    if (channel) {
+      toast.info("Removed from favorites", {
+        description: `${channel.name} has been removed from your favorites.`,
+        action: {
+          label: "Undo",
+          onClick: () => addFavorite(channel),
+        },
+      });
+    }
   };
 
   const isFavorite = (channelId: string) => {
