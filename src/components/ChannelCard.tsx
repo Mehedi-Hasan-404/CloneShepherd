@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom';
-import { Play, Star } from 'lucide-react';
+// /src/components/ChannelCard.tsx
+import { Star } from 'lucide-react';
 import { PublicChannel } from '@/types';
 import { useFavorites } from '@/contexts/FavoritesContext';
+import { useRecents } from '@/contexts/RecentsContext';
+import { toast } from "@/components/ui/sonner";
 
 interface ChannelCardProps {
   channel: PublicChannel;
@@ -9,6 +11,7 @@ interface ChannelCardProps {
 
 const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
+  const { addRecent } = useRecents();
   const isChannelFavorite = isFavorite(channel.id);
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
@@ -22,8 +25,22 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
     }
   };
 
+  const handleChannelClick = () => {
+    // Add to recent channels
+    addRecent(channel);
+    
+    // Show stream URL info
+    toast.info("Stream Information", {
+      description: `Channel: ${channel.name}\nStream URL: ${channel.streamUrl}`,
+      duration: 5000,
+    });
+  };
+
   return (
-    <Link to={`/channel/${channel.id}`} className="channel-card hover-lift animate-fade-in">
+    <div 
+      onClick={handleChannelClick}
+      className="channel-card hover-lift animate-fade-in cursor-pointer"
+    >
       <div className="channel-thumbnail">
         <img
           src={channel.logoUrl}
@@ -32,11 +49,6 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
             e.currentTarget.src = '/placeholder.svg';
           }}
         />
-        <div className="play-overlay">
-          <div className="play-btn-overlay hover-scale">
-            <Play size={20} fill="white" />
-          </div>
-        </div>
         <button
           onClick={handleFavoriteClick}
           className={`absolute top-2 right-2 p-1.5 rounded-full transition-all z-10 hover-scale ${
@@ -53,7 +65,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
         <div className="channel-name">{channel.name}</div>
         <div className="channel-category">{channel.categoryName}</div>
       </div>
-    </Link>
+    </div>
   );
 };
 
