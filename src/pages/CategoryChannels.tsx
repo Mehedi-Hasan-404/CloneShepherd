@@ -1,13 +1,13 @@
 // /src/pages/CategoryChannels.tsx
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
 import ChannelCard from '@/components/ChannelCard';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Tv } from 'lucide-react';
 
 const CategoryChannels = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -23,28 +23,32 @@ const CategoryChannels = () => {
   }, [slug]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
-    const lines = m3uContent.split('\n');
+    const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
     const channels: PublicChannel[] = [];
     let currentChannel: Partial<PublicChannel> = {};
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+      const line = lines[i];
       
       if (line.startsWith('#EXTINF:')) {
-        // Parse channel info from EXTINF line
+        // Extract channel name (after the comma)
         const nameMatch = line.match(/,(.+)$/);
+        const channelName = nameMatch ? nameMatch[1].trim() : 'Unknown Channel';
+        
+        // Extract logo URL from tvg-logo attribute
         const logoMatch = line.match(/tvg-logo="([^"]+)"/);
+        const logoUrl = logoMatch ? logoMatch[1] : '/placeholder.svg';
         
         currentChannel = {
-          name: nameMatch ? nameMatch[1].trim() : 'Unknown Channel',
-          logoUrl: logoMatch ? logoMatch[1] : '/placeholder.svg',
+          name: channelName,
+          logoUrl: logoUrl,
           categoryId,
           categoryName,
         };
       } else if (line && !line.startsWith('#') && currentChannel.name) {
-        // This should be the stream URL
+        // This is a stream URL
         const channel: PublicChannel = {
-          id: `${categoryId}_${channels.length}`,
+          id: `m3u_${categoryId}_${channels.length}`,
           name: currentChannel.name,
           logoUrl: currentChannel.logoUrl || '/placeholder.svg',
           streamUrl: line,
@@ -52,7 +56,7 @@ const CategoryChannels = () => {
           categoryName,
         };
         channels.push(channel);
-        currentChannel = {};
+        currentChannel = {}; // Reset for next channel
       }
     }
 
@@ -78,7 +82,7 @@ const CategoryChannels = () => {
       setLoading(true);
       setError(null);
 
-      // First, find the category by slug
+      // Find the category by slug
       const categoriesRef = collection(db, 'categories');
       const categoryQuery = query(categoriesRef, where('slug', '==', slug));
       const categorySnapshot = await getDocs(categoryQuery);
@@ -95,7 +99,7 @@ const CategoryChannels = () => {
 
       let allChannels: PublicChannel[] = [];
 
-      // If category has M3U URL, fetch and parse it
+      // If category has M3U URL, fetch and parse it to get channels
       if (categoryData.m3uUrl) {
         try {
           const m3uChannels = await fetchM3UPlaylist(
@@ -106,7 +110,7 @@ const CategoryChannels = () => {
           allChannels = [...allChannels, ...m3uChannels];
         } catch (m3uError) {
           console.error('Error loading M3U playlist:', m3uError);
-          setError('Failed to load M3U playlist. Showing manual channels only.');
+          setError('Failed to load M3U playlist. Please check the playlist URL.');
         }
       }
 
@@ -172,7 +176,10 @@ const CategoryChannels = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">{category.name}</h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Tv size={24} />
+          {category.name}
+        </h1>
         <p className="text-text-secondary">
           {channels.length} channel{channels.length !== 1 ? 's' : ''} available
           {category.m3uUrl && (
@@ -183,7 +190,14 @@ const CategoryChannels = () => {
 
       {channels.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-text-secondary">No channels available in this category.</p>
+          <Tv size={48} className="text-text-secondary mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">No Channels Available</h3>
+          <p className="text-text-secondary">
+            {category.m3uUrl 
+              ? "M3U playlist might be empty or invalid." 
+              : "No channels have been added to this category yet."
+            }
+          </p>
         </div>
       ) : (
         <div className="channel-grid">
