@@ -3,7 +3,7 @@ import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Upload, Users, BarChart3, Link as LinkIcon, Eye, Ban, AlertTriangle } from 'lucide-react';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Upload, Users, BarChart3, Link as LinkIcon, Eye, Ban, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,8 @@ import {
   blockIP,
   unblockIP,
 } from '@/services/supabaseService';
+// Assuming '@/lib/utils' and 'parseM3U' are available for playlist parsing
+import { parseM3U } from '@/lib/utils'; 
 
 // Login Component
 const AdminLogin = () => {
@@ -395,6 +397,7 @@ const ChannelsManager = () => {
       setChannels(data);
     } catch (error) {
       console.error('Error fetching channels:', error);
+      toast({ title: "Error", description: "Could not fetch channels.", variant: "destructive" });
     }
   };
 
@@ -429,28 +432,17 @@ const ChannelsManager = () => {
 
       if (editingChannel) {
         await updateChannel(editingChannel.id, channelData);
-        toast({
-          title: "Success",
-          description: "Channel updated successfully",
-        });
+        toast({ title: "Success", description: "Channel updated successfully" });
       } else {
         await createChannel(channelData);
-        toast({
-          title: "Success",
-          description: "Channel created successfully",
-        });
+        toast({ title: "Success", description: "Channel created successfully" });
       }
       
-      setNewChannel({ name: '', logo_url: '', stream_url: '', category_id: '', auth_cookie: '' });
-      setEditingChannel(null);
+      resetForm();
       await fetchChannels();
     } catch (error) {
       console.error('Error saving channel:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save channel",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to save channel", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -472,18 +464,11 @@ const ChannelsManager = () => {
     
     try {
       await deleteChannel(id);
-      toast({
-        title: "Success",
-        description: "Channel deleted successfully",
-      });
+      toast({ title: "Success", description: "Channel deleted successfully" });
       await fetchChannels();
     } catch (error) {
       console.error('Error deleting channel:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete channel",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to delete channel", variant: "destructive" });
     }
   };
 
@@ -622,7 +607,7 @@ const ChannelsManager = () => {
                     <div>
                       <div className="font-medium">{channel.name}</div>
                       <div className="text-sm text-muted-foreground flex items-center gap-2">
-                        <span>{categories.find(c => c.id === channel.category_id)?.name}</span>
+                         <span>{categories.find(c => c.id === channel.category_id)?.name || 'Uncategorized'}</span>
                         {channel.stream_url && (
                           <Badge variant="secondary">Live</Badge>
                         )}
@@ -658,72 +643,117 @@ const ChannelsManager = () => {
 // M3U Playlists Manager
 const M3UPlaylistsManager = () => {
   const [playlists, setPlaylists] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [editingPlaylist, setEditingPlaylist] = useState<any | null>(null);
-  const [newPlaylist, setNewPlaylist] = useState({
-    name: '',
-    url: '',
-    auto_sync: false,
-  });
+  const [newPlaylist, setNewPlaylist] = useState({ name: '', url: '', auto_sync: false, category_id: '' });
   const [loading, setLoading] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchPlaylists();
+    fetchCategories();
   }, []);
 
   const fetchPlaylists = async () => {
     try {
-      const data = await getM3UPlaylists();
-      setPlaylists(data);
+        const data = await getM3UPlaylists();
+        setPlaylists(data);
     } catch (error) {
-      console.error('Error fetching playlists:', error);
+        console.error('Error fetching playlists:', error);
+    }
+  };
+  
+  const fetchCategories = async () => {
+    try {
+        const data = await getCategories();
+        setCategories(data);
+    } catch (error) {
+        console.error('Error fetching categories:', error);
     }
   };
 
   const handleSavePlaylist = async () => {
-    if (!newPlaylist.name.trim() || !newPlaylist.url.trim()) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
+    if (!newPlaylist.name.trim() || !newPlaylist.url.trim() || !newPlaylist.category_id) {
+      toast({ title: "Error", description: "Name, URL, and Category are required", variant: "destructive" });
       return;
     }
-    
     setLoading(true);
     try {
-      const playlistData = {
-        name: newPlaylist.name.trim(),
-        url: newPlaylist.url.trim(),
-        auto_sync: newPlaylist.auto_sync,
-      };
-
+      // NOTE: auto_sync is not used in the form UI, but included in state
+      const playlistData = { ...newPlaylist }; 
       if (editingPlaylist) {
         await updateM3UPlaylist(editingPlaylist.id, playlistData);
-        toast({
-          title: "Success",
-          description: "Playlist updated successfully",
-        });
+        toast({ title: "Success", description: "Playlist updated" });
       } else {
         await createM3UPlaylist(playlistData);
-        toast({
-          title: "Success", 
-          description: "Playlist created successfully",
-        });
+        toast({ title: "Success", description: "Playlist created" });
       }
-      
-      setNewPlaylist({ name: '', url: '', auto_sync: false });
-      setEditingPlaylist(null);
+      resetForm();
       await fetchPlaylists();
     } catch (error) {
-      console.error('Error saving playlist:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save playlist",
-        variant: "destructive",
-      });
+        console.error('Error saving playlist:', error);
+      toast({ title: "Error", description: "Failed to save playlist", variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncPlaylist = async (playlist: any) => {
+    if (!playlist.category_id) {
+        toast({ title: "Error", description: "Please assign a category to this playlist before syncing.", variant: "destructive" });
+        return;
+    }
+    setSyncingId(playlist.id);
+    toast({ title: "Syncing...", description: `Importing channels from ${playlist.name}`});
+
+    try {
+        // Step 1: Fetch the M3U content
+        const response = await fetch(playlist.url);
+        if (!response.ok) throw new Error(`Failed to fetch playlist URL: ${response.statusText}`);
+        
+        const m3uText = await response.text();
+        
+        // Step 2: Parse the M3U content
+        const parsedChannels = parseM3U(m3uText);
+
+        if (parsedChannels.length === 0) {
+            toast({ title: "Warning", description: "No channels found in the playlist file.", variant: "default"});
+            return;
+        }
+
+        // Step 3: Create channels in the database
+        let importedCount = 0;
+        for (const pChannel of parsedChannels) {
+            try {
+                // Only create if stream_url is present
+                if (pChannel.link) { 
+                    await createChannel({
+                        name: pChannel.name || 'Unnamed Channel',
+                        stream_url: pChannel.link,
+                        logo_url: pChannel.logo || undefined,
+                        category_id: playlist.category_id,
+                    });
+                    importedCount++;
+                }
+            } catch (channelError) {
+                console.warn(`Skipping channel due to error: ${pChannel.name}`, channelError);
+            }
+        }
+        
+        // Step 4: Update playlist status
+        await updateM3UPlaylist(playlist.id, { last_sync: new Date().toISOString(), status: 'synced' });
+        await fetchPlaylists();
+
+        toast({ title: "Sync Complete", description: `Successfully imported ${importedCount} channels.`});
+
+    } catch (error: any) {
+        console.error('M3U Sync Error:', error);
+        toast({ title: "Sync Failed", description: error.message, variant: "destructive"});
+        await updateM3UPlaylist(playlist.id, { status: 'error' });
+        await fetchPlaylists();
+    } finally {
+        setSyncingId(null);
     }
   };
 
@@ -733,6 +763,7 @@ const M3UPlaylistsManager = () => {
       name: playlist.name,
       url: playlist.url,
       auto_sync: playlist.auto_sync || false,
+      category_id: playlist.category_id,
     });
   };
 
@@ -741,83 +772,60 @@ const M3UPlaylistsManager = () => {
     
     try {
       await deleteM3UPlaylist(id);
-      toast({
-        title: "Success",
-        description: "Playlist deleted successfully",
-      });
+      toast({ title: "Success", description: "Playlist deleted successfully" });
       await fetchPlaylists();
     } catch (error) {
       console.error('Error deleting playlist:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete playlist",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to delete playlist", variant: "destructive" });
     }
   };
-
+  
   const resetForm = () => {
-    setNewPlaylist({ name: '', url: '', auto_sync: false });
+    setNewPlaylist({ name: '', url: '', auto_sync: false, category_id: '' });
     setEditingPlaylist(null);
   };
-
+  
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>
-            {editingPlaylist ? 'Edit M3U Playlist' : 'Add M3U Playlist'}
-          </CardTitle>
-          <CardDescription>
-            Add M3U playlist URLs to automatically import channels
-          </CardDescription>
+          <CardTitle>{editingPlaylist ? 'Edit M3U Playlist' : 'Add M3U Playlist'}</CardTitle>
+          <CardDescription>Add M3U playlist URLs to automatically import channels</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="playlistName">Playlist Name *</Label>
-              <Input
-                id="playlistName"
-                value={newPlaylist.name}
-                onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })}
-                placeholder="e.g., Sports Channels, Movies"
-                disabled={loading}
-              />
+                <Label htmlFor="playlistName">Playlist Name *</Label>
+                <Input id="playlistName" value={newPlaylist.name} onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })} placeholder="e.g., Sports Channels" disabled={loading} />
             </div>
             <div>
-              <Label htmlFor="playlistUrl">M3U URL *</Label>
-              <Input
-                id="playlistUrl"
-                type="url"
-                value={newPlaylist.url}
-                onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })}
-                placeholder="https://example.com/playlist.m3u"
-                disabled={loading}
-              />
+              <Label htmlFor="category">Assign to Category *</Label>
+              <Select value={newPlaylist.category_id} onValueChange={(value) => setNewPlaylist({ ...newPlaylist, category_id: value })}>
+                <SelectTrigger><SelectValue placeholder="Select Category" /></SelectTrigger>
+                <SelectContent>
+                  {categories.map(category => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:col-span-2">
+                <Label htmlFor="playlistUrl">M3U URL *</Label>
+                <Input id="playlistUrl" type="url" value={newPlaylist.url} onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })} placeholder="https://example.com/playlist.m3u" disabled={loading} />
             </div>
           </div>
-          
           <div className="flex gap-2">
-            <Button onClick={handleSavePlaylist} disabled={loading || !newPlaylist.name.trim() || !newPlaylist.url.trim()}>
+            <Button onClick={handleSavePlaylist} disabled={loading || !newPlaylist.name.trim() || !newPlaylist.url.trim() || !newPlaylist.category_id}>
               <Save className="w-4 h-4 mr-2" />
               {loading ? 'Saving...' : editingPlaylist ? 'Update' : 'Add'}
             </Button>
-            {editingPlaylist && (
-              <Button variant="outline" onClick={resetForm} disabled={loading}>
-                <X className="w-4 h-4 mr-2" />
-                Cancel
-              </Button>
-            )}
+            {editingPlaylist && <Button variant="outline" onClick={resetForm} disabled={loading}><X className="w-4 h-4 mr-2" />Cancel</Button>}
           </div>
         </CardContent>
       </Card>
-
+      
       <Card>
-        <CardHeader>
-          <CardTitle>M3U Playlists ({playlists.length})</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>M3U Playlists ({playlists.length})</CardTitle></CardHeader>
         <CardContent>
-          {playlists.length === 0 ? (
+           {playlists.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">
               No playlists added yet.
             </p>
@@ -829,12 +837,11 @@ const M3UPlaylistsManager = () => {
                     <LinkIcon className="w-8 h-8 text-primary" />
                     <div>
                       <div className="font-medium">{playlist.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {playlist.url}
-                      </div>
+                      <div className="text-sm text-muted-foreground">URL: {playlist.url}</div>
+                      <div className="text-sm text-muted-foreground">Category: {categories.find(c => c.id === playlist.category_id)?.name || 'Not Set'}</div>
                       <div className="flex gap-2 mt-1">
-                        <Badge variant={playlist.status === 'active' ? 'default' : 'secondary'}>
-                           {playlist.status}
+                        <Badge variant={playlist.status === 'synced' ? 'default' : playlist.status === 'error' ? 'destructive' : 'secondary'}>
+                           {playlist.status || 'pending'}
                         </Badge>
                         {playlist.last_sync && (
                           <Badge variant="outline">
@@ -844,21 +851,18 @@ const M3UPlaylistsManager = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditPlaylist(playlist)}
+                  <div className="flex items-center gap-2">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleSyncPlaylist(playlist)} 
+                        disabled={syncingId === playlist.id || !playlist.category_id}
                     >
-                      <Edit className="w-4 h-4" />
+                        <RefreshCw className={`w-4 h-4 mr-2 ${syncingId === playlist.id ? 'animate-spin' : ''}`} />
+                        {syncingId === playlist.id ? 'Syncing...' : 'Sync Now'}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeletePlaylist(playlist.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleEditPlaylist(playlist)}><Edit className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDeletePlaylist(playlist.id)}><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 </div>
               ))}
@@ -1333,6 +1337,8 @@ const AdminDashboard = () => {
               <Route path="/playlists" element={<M3UPlaylistsManager />} />
               <Route path="/analytics" element={<AnalyticsManager />} />
               <Route path="/ips" element={<IPManagement />} />
+              {/* Optional: Redirect or 404 handler */}
+              <Route path="*" element={<Navigate to="/admin" replace />} />
             </Routes>
           </div>
         </div>
@@ -1348,7 +1354,8 @@ const Admin = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="loading-spinner mx-auto mb-4"></div>
+          {/* Simple loading indicator, assuming 'loading-spinner' is a defined CSS class */}
+          <div className="loading-spinner mx-auto mb-4"></div> 
           <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
