@@ -1,6 +1,7 @@
+// /src/components/CategoryCard.tsx
 import { Link } from 'react-router-dom';
 import { Category } from '@/types';
-import { Tv } from 'lucide-react';
+import { Tv, Link as LinkIcon } from 'lucide-react';
 
 interface CategoryCardProps {
   category: Category;
@@ -26,7 +27,15 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category }) => {
         )}
         <Tv size={24} className="hidden" />
       </div>
-      <span className="category-name">{category.name}</span>
+      <div className="flex flex-col items-center gap-1">
+        <span className="category-name">{category.name}</span>
+        {category.m3uUrl && (
+          <div className="flex items-center gap-1 text-xs text-green-500">
+            <LinkIcon size={10} />
+            <span>M3U</span>
+          </div>
+        )}
+      </div>
     </Link>
   );
 };
