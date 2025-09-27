@@ -11,7 +11,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex flex-col h-screen bg-background">
       <Header onMenuClick={() => setIsSidebarOpen(true)} />
       
       <Sidebar 
@@ -19,7 +19,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         onClose={() => setIsSidebarOpen(false)} 
       />
 
-      <main className="main-content">
+      <main className="flex-1 overflow-y-auto p-4">
         {children}
       </main>
 
