@@ -1,13 +1,15 @@
+// /src/pages/Admin.tsx
 import { useState, useEffect } from 'react';
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Category, AdminChannel } from '@/types';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X } from 'lucide-react';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon } from 'lucide-react';
+import { toast } from "@/components/ui/sonner";
 
-// Login Component
+// Login Component (same as before)
 const AdminLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,6 +23,9 @@ const AdminLogin = () => {
     
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      toast.success("Login successful", {
+        description: "Welcome to the admin panel!",
+      });
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
@@ -44,7 +49,7 @@ const AdminLogin = () => {
           <p className="text-text-secondary">Sign in to manage your IPTV system</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <input
               type="email"
@@ -83,11 +88,16 @@ const AdminLogin = () => {
   );
 };
 
-// Categories Manager Component
+// Categories Manager Component (Updated with M3U support)
 const CategoriesManager = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [newCategory, setNewCategory] = useState({ name: '', slug: '', iconUrl: '' });
+  const [newCategory, setNewCategory] = useState({ 
+    name: '', 
+    slug: '', 
+    iconUrl: '', 
+    m3uUrl: '' 
+  });
   const [loading, setLoading] = useState(false);
 
   // Helper function to generate slug from name
@@ -95,10 +105,10 @@ const CategoriesManager = () => {
     return name
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
-      .replace(/\s+/g, '-') // Replace spaces with hyphens
-      .replace(/-+/g, '-') // Replace multiple hyphens with single
-      .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
   };
 
   useEffect(() => {
@@ -110,7 +120,6 @@ const CategoriesManager = () => {
       const categoriesCol = collection(db, 'categories');
       const q = query(categoriesCol, orderBy('name'));
       
-      // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), 10000)
       );
@@ -124,27 +133,55 @@ const CategoriesManager = () => {
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
+      toast.error("Failed to fetch categories", {
+        description: "Please try refreshing the page.",
+      });
+    }
+  };
+
+  const validateM3UUrl = async (url: string): Promise<boolean> => {
+    if (!url) return true; // Empty URL is valid (optional field)
+    
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.ok;
+    } catch {
+      return false;
     }
   };
 
   const handleSaveCategory = async () => {
     if (!newCategory.name.trim()) {
-      alert('Category name is required');
+      toast.error("Validation Error", {
+        description: "Category name is required",
+      });
       return;
     }
     
     setLoading(true);
     try {
-      // Generate slug if not provided or update it based on name
+      // Validate M3U URL if provided
+      if (newCategory.m3uUrl.trim()) {
+        const isValidM3U = await validateM3UUrl(newCategory.m3uUrl.trim());
+        if (!isValidM3U) {
+          toast.error("Invalid M3U URL", {
+            description: "The M3U playlist URL is not accessible. Please check the URL.",
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
       const finalSlug = newCategory.slug.trim() || generateSlug(newCategory.name);
       
-      // Check for duplicate slugs
       const existingCategory = categories.find(cat => 
         cat.slug === finalSlug && cat.id !== editingCategory?.id
       );
       
       if (existingCategory) {
-        alert('A category with this name/slug already exists. Please choose a different name.');
+        toast.error("Duplicate Category", {
+          description: "A category with this name/slug already exists. Please choose a different name.",
+        });
         setLoading(false);
         return;
       }
@@ -153,20 +190,29 @@ const CategoriesManager = () => {
         name: newCategory.name.trim(),
         slug: finalSlug,
         iconUrl: newCategory.iconUrl.trim() || '',
+        m3uUrl: newCategory.m3uUrl.trim() || '',
       };
 
       if (editingCategory) {
         await updateDoc(doc(db, 'categories', editingCategory.id), categoryData);
+        toast.success("Category Updated", {
+          description: `${categoryData.name} has been updated successfully.`,
+        });
       } else {
         await addDoc(collection(db, 'categories'), categoryData);
+        toast.success("Category Added", {
+          description: `${categoryData.name} has been added successfully.`,
+        });
       }
       
-      setNewCategory({ name: '', slug: '', iconUrl: '' });
+      setNewCategory({ name: '', slug: '', iconUrl: '', m3uUrl: '' });
       setEditingCategory(null);
       await fetchCategories();
     } catch (error) {
       console.error('Error saving category:', error);
-      alert('Failed to save category. Please try again.');
+      toast.error("Save Failed", {
+        description: "Failed to save category. Please try again.",
+      });
     } finally {
       setLoading(false);
     }
@@ -178,6 +224,7 @@ const CategoriesManager = () => {
       name: category.name,
       slug: category.slug,
       iconUrl: category.iconUrl || '',
+      m3uUrl: category.m3uUrl || '',
     });
   };
 
@@ -187,18 +234,22 @@ const CategoriesManager = () => {
     try {
       await deleteDoc(doc(db, 'categories', id));
       await fetchCategories();
+      toast.success("Category Deleted", {
+        description: "Category has been deleted successfully.",
+      });
     } catch (error) {
       console.error('Error deleting category:', error);
-      alert('Failed to delete category. Please try again.');
+      toast.error("Delete Failed", {
+        description: "Failed to delete category. Please try again.",
+      });
     }
   };
 
   const resetForm = () => {
-    setNewCategory({ name: '', slug: '', iconUrl: '' });
+    setNewCategory({ name: '', slug: '', iconUrl: '', m3uUrl: '' });
     setEditingCategory(null);
   };
 
-  // Auto-generate slug when name changes
   const handleNameChange = (name: string) => {
     setNewCategory(prev => ({
       ...prev,
@@ -216,7 +267,7 @@ const CategoriesManager = () => {
         <h3 className="text-lg font-semibold mb-4">
           {editingCategory ? 'Edit Category' : 'Add New Category'}
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">Category Name *</label>
             <input
@@ -253,6 +304,25 @@ const CategoriesManager = () => {
               disabled={loading}
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              M3U Playlist URL
+              <span className="ml-1 text-green-500">
+                <LinkIcon size={14} className="inline" />
+              </span>
+            </label>
+            <input
+              type="url"
+              value={newCategory.m3uUrl}
+              onChange={(e) => setNewCategory({ ...newCategory, m3uUrl: e.target.value })}
+              placeholder="https://example.com/playlist.m3u8"
+              className="form-input"
+              disabled={loading}
+            />
+            <p className="text-xs text-text-secondary mt-1">
+              Optional: Add M3U playlist URL to automatically import channels
+            </p>
+          </div>
         </div>
         
         {/* Preview */}
@@ -278,6 +348,9 @@ const CategoriesManager = () => {
                 <div className="font-medium">{newCategory.name}</div>
                 <div className="text-sm text-text-secondary">
                   URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
+                  {newCategory.m3uUrl && (
+                    <span className="ml-2 text-green-500">• M3U Playlist</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -335,7 +408,14 @@ const CategoriesManager = () => {
                     )}
                   </div>
                   <div>
-                    <div className="font-medium">{category.name}</div>
+                    <div className="font-medium flex items-center gap-2">
+                      {category.name}
+                      {category.m3uUrl && (
+                        <span className="text-green-500 text-xs bg-green-500/10 px-2 py-1 rounded">
+                          M3U
+                        </span>
+                      )}
+                    </div>
                     <div className="text-sm text-text-secondary">
                       /category/{category.slug}
                     </div>
@@ -366,7 +446,7 @@ const CategoriesManager = () => {
   );
 };
 
-// Channels Manager Component
+// Channels Manager Component (Updated)
 const ChannelsManager = () => {
   const [channels, setChannels] = useState<AdminChannel[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -390,7 +470,6 @@ const ChannelsManager = () => {
       const channelsCol = collection(db, 'channels');
       const q = query(channelsCol, orderBy('name'));
       
-      // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), 10000)
       );
@@ -404,6 +483,9 @@ const ChannelsManager = () => {
       setChannels(channelsData);
     } catch (error) {
       console.error('Error fetching channels:', error);
+      toast.error("Failed to fetch channels", {
+        description: "Please try refreshing the page.",
+      });
     }
   };
 
@@ -412,7 +494,7 @@ const ChannelsManager = () => {
       const categoriesCol = collection(db, 'categories');
       const q = query(categoriesCol, orderBy('name'));
       
-      const timeoutPromise = new Promise((_, reject) =>
+            const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timeout')), 10000)
       );
       
@@ -425,12 +507,17 @@ const ChannelsManager = () => {
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
+      toast.error("Failed to fetch categories", {
+        description: "Please try refreshing the page.",
+      });
     }
   };
 
   const handleSaveChannel = async () => {
     if (!newChannel.name.trim() || !newChannel.streamUrl.trim() || !newChannel.categoryId) {
-      alert('Please fill in all required fields (Name, Stream URL, Category)');
+      toast.error("Validation Error", {
+        description: "Please fill in all required fields (Name, Stream URL, Category)",
+      });
       return;
     }
     
@@ -445,7 +532,9 @@ const ChannelsManager = () => {
     try {
       const category = categories.find(cat => cat.id === newChannel.categoryId);
       if (!category) {
-        alert('Please select a valid category');
+        toast.error("Invalid Category", {
+          description: "Please select a valid category",
+        });
         setLoading(false);
         return;
       }
@@ -461,8 +550,14 @@ const ChannelsManager = () => {
 
       if (editingChannel) {
         await updateDoc(doc(db, 'channels', editingChannel.id), channelData);
+        toast.success("Channel Updated", {
+          description: `${channelData.name} has been updated successfully.`,
+        });
       } else {
         await addDoc(collection(db, 'channels'), channelData);
+        toast.success("Channel Added", {
+          description: `${channelData.name} has been added successfully.`,
+        });
       }
       
       setNewChannel({ name: '', logoUrl: '', streamUrl: '', categoryId: '', authCookie: '' });
@@ -470,7 +565,9 @@ const ChannelsManager = () => {
       await fetchChannels();
     } catch (error) {
       console.error('Error saving channel:', error);
-      alert('Failed to save channel. Please try again.');
+      toast.error("Save Failed", {
+        description: "Failed to save channel. Please try again.",
+      });
     } finally {
       setLoading(false);
     }
@@ -493,9 +590,14 @@ const ChannelsManager = () => {
     try {
       await deleteDoc(doc(db, 'channels', id));
       await fetchChannels();
+      toast.success("Channel Deleted", {
+        description: "Channel has been deleted successfully.",
+      });
     } catch (error) {
       console.error('Error deleting channel:', error);
-      alert('Failed to delete channel. Please try again.');
+      toast.error("Delete Failed", {
+        description: "Failed to delete channel. Please try again.",
+      });
     }
   };
 
@@ -506,7 +608,12 @@ const ChannelsManager = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Channels Management</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Channels Management</h2>
+        <div className="text-sm text-text-secondary">
+          Manual channels only. M3U channels are managed via category playlists.
+        </div>
+      </div>
       
       {/* Add/Edit Form */}
       <div className="bg-card border border-border rounded-lg p-6">
@@ -558,7 +665,7 @@ const ChannelsManager = () => {
               <option value="">Select Category</option>
               {categories.map(category => (
                 <option key={category.id} value={category.id}>
-                  {category.name}
+                  {category.name} {category.m3uUrl && '(Has M3U)'}
                 </option>
               ))}
             </select>
@@ -623,11 +730,13 @@ const ChannelsManager = () => {
       {/* Channels List */}
       <div className="bg-card border border-border rounded-lg p-6">
         <h3 className="text-lg font-semibold mb-4">
-          Existing Channels ({channels.length})
+          Manual Channels ({channels.length})
         </h3>
         {channels.length === 0 ? (
           <p className="text-text-secondary text-center py-8">
-            No channels created yet. Add your first channel above.
+            No manual channels created yet. Add your first channel above.
+            <br />
+            <span className="text-xs">Note: M3U playlist channels are automatically loaded from category playlists.</span>
           </p>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -647,7 +756,7 @@ const ChannelsManager = () => {
                     <div className="text-sm text-text-secondary flex items-center gap-2">
                       <span>{channel.categoryName}</span>
                       {channel.streamUrl && (
-                        <span className="text-green-500">• Live</span>
+                        <span className="text-green-500">• Manual</span>
                       )}
                     </div>
                   </div>
@@ -681,19 +790,52 @@ const ChannelsManager = () => {
 const AdminDashboard = () => {
   const location = useLocation();
   const { user } = useAuth();
+  const [stats, setStats] = useState({
+    totalCategories: 0,
+    totalChannels: 0,
+    m3uCategories: 0,
+  });
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      const categoriesSnapshot = await getDocs(collection(db, 'categories'));
+      const channelsSnapshot = await getDocs(collection(db, 'channels'));
+      
+      const categories = categoriesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Category[];
+      const m3uCategories = categories.filter(cat => cat.m3uUrl).length;
+
+      setStats({
+        totalCategories: categories.length,
+        totalChannels: channelsSnapshot.size,
+        m3uCategories,
+      });
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      toast.success("Logged out successfully", {
+        description: "You have been logged out of the admin panel.",
+      });
     } catch (error) {
       console.error('Logout error:', error);
+      toast.error("Logout failed", {
+        description: "There was an error logging out. Please try again.",
+      });
     }
   };
 
   const navItems = [
     { path: '/admin', label: 'Dashboard', exact: true },
     { path: '/admin/categories', label: 'Categories' },
-    { path: '/admin/channels', label: 'Channels' },
+    { path: '/admin/channels', label: 'Manual Channels' },
   ];
 
   return (
@@ -753,35 +895,88 @@ const AdminDashboard = () => {
               <Route path="/" element={
                 <div className="space-y-6">
                   <h2 className="text-2xl font-bold">Dashboard</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  
+                  {/* Stats Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">Quick Actions</h3>
-                      <div className="space-y-2">
+                      <h3 className="text-lg font-semibold mb-2">Total Categories</h3>
+                      <div className="text-3xl font-bold text-accent">{stats.totalCategories}</div>
+                      <p className="text-sm text-text-secondary mt-1">
+                        {stats.m3uCategories} with M3U playlists
+                                      </p>
+                    </div>
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-2">Manual Channels</h3>
+                      <div className="text-3xl font-bold text-accent">{stats.totalChannels}</div>
+                      <p className="text-sm text-text-secondary mt-1">
+                        Manually added channels
+                      </p>
+                    </div>
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-2">M3U Categories</h3>
+                      <div className="text-3xl font-bold text-green-500">{stats.m3uCategories}</div>
+                      <p className="text-sm text-text-secondary mt-1">
+                        Categories with playlists
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+                      <div className="space-y-3">
                         <Link to="/admin/categories" className="btn-secondary w-full justify-start">
                           <Plus size={16} />
-                          Manage Categories
+                          Add Category with M3U
                         </Link>
                         <Link to="/admin/channels" className="btn-secondary w-full justify-start">
                           <Plus size={16} />
-                          Manage Channels
+                          Add Manual Channel
                         </Link>
                       </div>
                     </div>
+                    
                     <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">System Info</h3>
-                      <div className="text-text-secondary space-y-1 text-sm">
-                        <div>IPTV Management System</div>
-                        <div>Version 1.0.0</div>
-                        <div>Admin: {user?.email}</div>
-                        <div className="text-green-500 mt-2">System Online</div>
+                      <h3 className="text-lg font-semibold mb-4">System Info</h3>
+                      <div className="text-text-secondary space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span>IPTV Management System</span>
+                          <span>v2.0.0</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Admin:</span>
+                          <span>{user?.email}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>M3U Support:</span>
+                          <span className="text-green-500">Enabled</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Status:</span>
+                          <span className="text-green-500">Online</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="bg-card border border-border rounded-lg p-6">
-                      <h3 className="text-lg font-semibold mb-2">Important Notes</h3>
-                      <div className="text-text-secondary text-sm space-y-2">
-                        <p>• Stream URLs must be valid m3u8 or mp4 links</p>
-                        <p>• Category slugs are auto-generated from names</p>
-                        <p>• Always test streams before publishing</p>
+                  </div>
+
+                  <div className="bg-card border border-border rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">Important Notes</h3>
+                    <div className="text-text-secondary text-sm space-y-3">
+                      <div className="flex items-start gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                        <p><strong>M3U Playlists:</strong> Add M3U playlist URLs to categories to automatically import channels with their logos and stream URLs.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                        <p><strong>Manual Channels:</strong> Use manual channel creation for individual channels or when M3U playlists are not available.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                        <p><strong>Stream URLs:</strong> Both M3U8 and MP4 formats are supported for streaming.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
+                        <p><strong>Category Slugs:</strong> Auto-generated from category names for SEO-friendly URLs.</p>
                       </div>
                     </div>
                   </div>
@@ -806,7 +1001,7 @@ const Admin = () => {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <div className="loading-spinner mx-auto mb-4"></div>
-          <p className="text-text-secondary">Loading...</p>
+          <p className="text-text-secondary">Loading admin panel...</p>
         </div>
       </div>
     );
