@@ -1,39 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Upload, Users, BarChart3, Link as LinkIcon, Eye, Ban, AlertTriangle, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
-import {
-  getCategories,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  getChannels,
-  createChannel,
-  updateChannel,
-  deleteChannel,
-  getM3UPlaylists,
-  createM3UPlaylist,
-  updateM3UPlaylist,
-  deleteM3UPlaylist,
-  getVisitorAnalytics,
-  getChannelAnalytics,
-  getBlockedIPs,
-  blockIP,
-  unblockIP,
-} from '@/services/supabaseService';
-// Assuming '@/lib/utils' and 'parseM3U' are available for playlist parsing
-import { parseM3U } from '@/lib/utils'; 
+import { Category, AdminChannel } from '@/types';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X } from 'lucide-react';
 
 // Login Component
 const AdminLogin = () => {
@@ -65,67 +37,68 @@ const AdminLogin = () => {
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+      <div className="w-full max-w-md bg-card border border-border rounded-lg p-6">
+        <div className="text-center mb-6">
           <Shield size={48} className="text-accent mx-auto mb-4" />
-          <CardTitle className="text-2xl">Admin Login</CardTitle>
-          <CardDescription>Sign in to manage your IPTV system</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                required
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                required
-                disabled={loading}
-              />
-            </div>
-            {error && (
-              <div className="text-destructive text-sm bg-destructive/10 p-3 rounded-lg">{error}</div>
-            )}
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          <h1 className="text-2xl font-bold">Admin Login</h1>
+          <p className="text-text-secondary">Sign in to manage your IPTV system</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              required
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              required
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+          {error && (
+            <div className="text-destructive text-sm bg-destructive/10 p-3 rounded-lg">{error}</div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full"
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
 
-// Categories Manager
+// Categories Manager Component
 const CategoriesManager = () => {
-  const [categories, setCategories] = useState<any[]>([]);
-  const [editingCategory, setEditingCategory] = useState<any | null>(null);
-  const [newCategory, setNewCategory] = useState({ name: '', slug: '', icon_url: '' });
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [newCategory, setNewCategory] = useState({ name: '', slug: '', iconUrl: '' });
   const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
 
+  // Helper function to generate slug from name
   const generateSlug = (name: string): string => {
     return name
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with single
+      .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
   };
 
   useEffect(() => {
@@ -134,42 +107,44 @@ const CategoriesManager = () => {
 
   const fetchCategories = async () => {
     try {
-      const data = await getCategories();
-      setCategories(data);
+      const categoriesCol = collection(db, 'categories');
+      const q = query(categoriesCol, orderBy('name'));
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const categoriesData = snapshot.docs.map((doc: any) => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Category[];
+      
+      setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch categories",
-        variant: "destructive",
-      });
     }
   };
 
   const handleSaveCategory = async () => {
     if (!newCategory.name.trim()) {
-      toast({
-        title: "Error",
-        description: "Category name is required",
-        variant: "destructive",
-      });
+      alert('Category name is required');
       return;
     }
     
     setLoading(true);
     try {
+      // Generate slug if not provided or update it based on name
       const finalSlug = newCategory.slug.trim() || generateSlug(newCategory.name);
       
+      // Check for duplicate slugs
       const existingCategory = categories.find(cat => 
         cat.slug === finalSlug && cat.id !== editingCategory?.id
       );
       
       if (existingCategory) {
-        toast({
-          title: "Error",
-          description: "A category with this name/slug already exists",
-          variant: "destructive",
-        });
+        alert('A category with this name/slug already exists. Please choose a different name.');
         setLoading(false);
         return;
       }
@@ -177,72 +152,53 @@ const CategoriesManager = () => {
       const categoryData = {
         name: newCategory.name.trim(),
         slug: finalSlug,
-        icon_url: newCategory.icon_url.trim() || undefined,
+        iconUrl: newCategory.iconUrl.trim() || '',
       };
 
       if (editingCategory) {
-        await updateCategory(editingCategory.id, categoryData);
-        toast({
-          title: "Success",
-          description: "Category updated successfully",
-        });
+        await updateDoc(doc(db, 'categories', editingCategory.id), categoryData);
       } else {
-        await createCategory(categoryData);
-        toast({
-          title: "Success",
-          description: "Category created successfully",
-        });
+        await addDoc(collection(db, 'categories'), categoryData);
       }
       
-      setNewCategory({ name: '', slug: '', icon_url: '' });
+      setNewCategory({ name: '', slug: '', iconUrl: '' });
       setEditingCategory(null);
       await fetchCategories();
     } catch (error) {
       console.error('Error saving category:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save category",
-        variant: "destructive",
-      });
+      alert('Failed to save category. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEditCategory = (category: any) => {
+  const handleEditCategory = (category: Category) => {
     setEditingCategory(category);
     setNewCategory({
       name: category.name,
       slug: category.slug,
-      icon_url: category.icon_url || '',
+      iconUrl: category.iconUrl || '',
     });
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+    if (!confirm('Are you sure you want to delete this category? This action cannot be undone.')) return;
     
     try {
-      await deleteCategory(id);
-      toast({
-        title: "Success",
-        description: "Category deleted successfully",
-      });
+      await deleteDoc(doc(db, 'categories', id));
       await fetchCategories();
     } catch (error) {
       console.error('Error deleting category:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete category",
-        variant: "destructive",
-      });
+      alert('Failed to delete category. Please try again.');
     }
   };
 
   const resetForm = () => {
-    setNewCategory({ name: '', slug: '', icon_url: '' });
+    setNewCategory({ name: '', slug: '', iconUrl: '' });
     setEditingCategory(null);
   };
 
+  // Auto-generate slug when name changes
   const handleNameChange = (name: string) => {
     setNewCategory(prev => ({
       ...prev,
@@ -253,138 +209,176 @@ const CategoriesManager = () => {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {editingCategory ? 'Edit Category' : 'Add New Category'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="categoryName">Category Name *</Label>
-              <Input
-                id="categoryName"
-                value={newCategory.name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="e.g., Sports, Movies, News"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="categorySlug">URL Slug</Label>
-              <Input
-                id="categorySlug"
-                value={newCategory.slug}
-                onChange={(e) => setNewCategory({ ...newCategory, slug: e.target.value })}
-                placeholder="Auto-generated from name"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="categoryIcon">Icon URL</Label>
-              <Input
-                id="categoryIcon"
-                type="url"
-                value={newCategory.icon_url}
-                onChange={(e) => setNewCategory({ ...newCategory, icon_url: e.target.value })}
-                placeholder="https://example.com/icon.png"
-                disabled={loading}
-              />
-            </div>
+      <h2 className="text-2xl font-bold">Categories Management</h2>
+      
+      {/* Add/Edit Form */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">
+          {editingCategory ? 'Edit Category' : 'Add New Category'}
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Category Name *</label>
+            <input
+              type="text"
+              value={newCategory.name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="e.g., Sports, Movies, News"
+              className="form-input"
+              disabled={loading}
+            />
           </div>
-          
-          <div className="flex gap-2">
-            <Button onClick={handleSaveCategory} disabled={loading || !newCategory.name.trim()}>
-              <Save className="w-4 h-4 mr-2" />
-              {loading ? 'Saving...' : editingCategory ? 'Update' : 'Add'}
-            </Button>
-            {editingCategory && (
-              <Button variant="outline" onClick={resetForm} disabled={loading}>
-                <X className="w-4 h-4 mr-2" />
-                Cancel
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Categories ({categories.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {categories.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
-              No categories created yet.
+          <div>
+            <label className="block text-sm font-medium mb-2">URL Slug</label>
+            <input
+              type="text"
+              value={newCategory.slug}
+              onChange={(e) => setNewCategory({ ...newCategory, slug: e.target.value })}
+              placeholder="Auto-generated from name"
+              className="form-input"
+              disabled={loading}
+            />
+            <p className="text-xs text-text-secondary mt-1">
+              Leave empty to auto-generate from name
             </p>
-          ) : (
-            <div className="space-y-2">
-               {categories.map(category => (
-                <div key={category.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white">
-                       {category.icon_url ? (
-                        <img 
-                          src={category.icon_url} 
-                          alt={category.name} 
-                          className="w-full h-full object-cover rounded-full"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        category.name.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-medium">{category.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        /category/{category.slug}
-                      </div>
-                    </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Icon URL</label>
+            <input
+              type="url"
+              value={newCategory.iconUrl}
+              onChange={(e) => setNewCategory({ ...newCategory, iconUrl: e.target.value })}
+              placeholder="https://example.com/icon.png"
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+        </div>
+        
+        {/* Preview */}
+        {newCategory.name && (
+          <div className="mt-4 p-3 bg-bg-secondary rounded-lg">
+            <p className="text-sm text-text-secondary mb-2">Preview:</p>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-white text-xs">
+                {newCategory.iconUrl ? (
+                  <img 
+                    src={newCategory.iconUrl} 
+                    alt="" 
+                    className="w-full h-full object-cover rounded-full"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  newCategory.name.charAt(0).toUpperCase()
+                )}
+              </div>
+              <div>
+                <div className="font-medium">{newCategory.name}</div>
+                <div className="text-sm text-text-secondary">
+                  URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={handleSaveCategory}
+            disabled={loading || !newCategory.name.trim()}
+            className="btn-primary"
+          >
+            <Save size={16} />
+            {loading ? 'Saving...' : editingCategory ? 'Update Category' : 'Add Category'}
+          </button>
+          {editingCategory && (
+            <button onClick={resetForm} className="btn-secondary" disabled={loading}>
+              <X size={16} />
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Categories List */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">
+          Existing Categories ({categories.length})
+        </h3>
+        {categories.length === 0 ? (
+          <p className="text-text-secondary text-center py-8">
+            No categories created yet. Add your first category above.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {categories.map(category => (
+              <div key={category.id} className="flex items-center justify-between p-3 bg-bg-secondary rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-white">
+                    {category.iconUrl ? (
+                      <img 
+                        src={category.iconUrl} 
+                        alt={category.name} 
+                        className="w-full h-full object-cover rounded-full"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            parent.textContent = category.name.charAt(0).toUpperCase();
+                          }
+                        }}
+                      />
+                    ) : (
+                      category.name.charAt(0).toUpperCase()
+                    )}
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditCategory(category)}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteCategory(category.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                  <div>
+                    <div className="font-medium">{category.name}</div>
+                    <div className="text-sm text-text-secondary">
+                      /category/{category.slug}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditCategory(category)}
+                    className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
+                    title="Edit category"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCategory(category.id)}
+                    className="p-2 text-destructive hover:text-red-400 transition-colors"
+                    title="Delete category"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
-// Channels Manager
+// Channels Manager Component
 const ChannelsManager = () => {
-  const [channels, setChannels] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
-  const [editingChannel, setEditingChannel] = useState<any | null>(null);
+  const [channels, setChannels] = useState<AdminChannel[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [editingChannel, setEditingChannel] = useState<AdminChannel | null>(null);
   const [newChannel, setNewChannel] = useState({
     name: '',
-    logo_url: '',
-    stream_url: '',
-    category_id: '',
-    auth_cookie: '',
+    logoUrl: '',
+    streamUrl: '',
+    categoryId: '',
+    authCookie: '',
   });
   const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
 
   useEffect(() => {
     fetchChannels();
@@ -393,809 +387,292 @@ const ChannelsManager = () => {
 
   const fetchChannels = async () => {
     try {
-      const data = await getChannels();
-      setChannels(data);
+      const channelsCol = collection(db, 'channels');
+      const q = query(channelsCol, orderBy('name'));
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const channelsData = snapshot.docs.map((doc: any) => ({
+        id: doc.id,
+        ...doc.data()
+      })) as AdminChannel[];
+      
+      setChannels(channelsData);
     } catch (error) {
       console.error('Error fetching channels:', error);
-      toast({ title: "Error", description: "Could not fetch channels.", variant: "destructive" });
     }
   };
 
   const fetchCategories = async () => {
     try {
-      const data = await getCategories();
-      setCategories(data);
+      const categoriesCol = collection(db, 'categories');
+      const q = query(categoriesCol, orderBy('name'));
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      const snapshot = await Promise.race([getDocs(q), timeoutPromise]) as any;
+      const categoriesData = snapshot.docs.map((doc: any) => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Category[];
+      
+      setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
   };
 
   const handleSaveChannel = async () => {
-    if (!newChannel.name.trim() || !newChannel.stream_url.trim() || !newChannel.category_id) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
+    if (!newChannel.name.trim() || !newChannel.streamUrl.trim() || !newChannel.categoryId) {
+      alert('Please fill in all required fields (Name, Stream URL, Category)');
       return;
+    }
+    
+    // Validate stream URL
+    if (!newChannel.streamUrl.includes('m3u8') && !newChannel.streamUrl.includes('mp4')) {
+      if (!confirm('Stream URL does not appear to be a valid video format. Continue anyway?')) {
+        return;
+      }
     }
     
     setLoading(true);
     try {
+      const category = categories.find(cat => cat.id === newChannel.categoryId);
+      if (!category) {
+        alert('Please select a valid category');
+        setLoading(false);
+        return;
+      }
+
       const channelData = {
         name: newChannel.name.trim(),
-        logo_url: newChannel.logo_url.trim() || undefined,
-        stream_url: newChannel.stream_url.trim(),
-        category_id: newChannel.category_id,
-        auth_cookie: newChannel.auth_cookie.trim() || undefined,
+        logoUrl: newChannel.logoUrl.trim() || '/placeholder.svg',
+        streamUrl: newChannel.streamUrl.trim(),
+        categoryId: newChannel.categoryId,
+        categoryName: category.name,
+        authCookie: newChannel.authCookie.trim() || null,
       };
 
       if (editingChannel) {
-        await updateChannel(editingChannel.id, channelData);
-        toast({ title: "Success", description: "Channel updated successfully" });
+        await updateDoc(doc(db, 'channels', editingChannel.id), channelData);
       } else {
-        await createChannel(channelData);
-        toast({ title: "Success", description: "Channel created successfully" });
+        await addDoc(collection(db, 'channels'), channelData);
       }
       
-      resetForm();
+      setNewChannel({ name: '', logoUrl: '', streamUrl: '', categoryId: '', authCookie: '' });
+      setEditingChannel(null);
       await fetchChannels();
     } catch (error) {
       console.error('Error saving channel:', error);
-      toast({ title: "Error", description: "Failed to save channel", variant: "destructive" });
+      alert('Failed to save channel. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEditChannel = (channel: any) => {
+  const handleEditChannel = (channel: AdminChannel) => {
     setEditingChannel(channel);
     setNewChannel({
       name: channel.name,
-      logo_url: channel.logo_url || '',
-      stream_url: channel.stream_url,
-      category_id: channel.category_id,
-      auth_cookie: channel.auth_cookie || '',
+      logoUrl: channel.logoUrl,
+      streamUrl: channel.streamUrl,
+      categoryId: channel.categoryId,
+      authCookie: channel.authCookie || '',
     });
   };
 
   const handleDeleteChannel = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this channel?')) return;
+    if (!confirm('Are you sure you want to delete this channel? This action cannot be undone.')) return;
     
     try {
-      await deleteChannel(id);
-      toast({ title: "Success", description: "Channel deleted successfully" });
+      await deleteDoc(doc(db, 'channels', id));
       await fetchChannels();
     } catch (error) {
       console.error('Error deleting channel:', error);
-      toast({ title: "Error", description: "Failed to delete channel", variant: "destructive" });
+      alert('Failed to delete channel. Please try again.');
     }
   };
 
   const resetForm = () => {
-    setNewChannel({ name: '', logo_url: '', stream_url: '', category_id: '', auth_cookie: '' });
+    setNewChannel({ name: '', logoUrl: '', streamUrl: '', categoryId: '', authCookie: '' });
     setEditingChannel(null);
   };
 
-  // Filter channels by category
-  const filteredChannels = selectedCategoryId 
-    ? channels.filter(channel => channel.category_id === selectedCategoryId)
-    : channels;
-
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {editingChannel ? 'Edit Channel' : 'Add New Channel'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="channelName">Channel Name *</Label>
-              <Input
-                id="channelName"
-                value={newChannel.name}
-                onChange={(e) => setNewChannel({ ...newChannel, name: e.target.value })}
-                placeholder="e.g., CNN, BBC News, ESPN"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="channelLogo">Logo URL</Label>
-              <Input
-                id="channelLogo"
-                type="url"
-                value={newChannel.logo_url}
-                onChange={(e) => setNewChannel({ ...newChannel, logo_url: e.target.value })}
-                placeholder="https://example.com/logo.png"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="streamUrl">Stream URL (m3u8) *</Label>
-              <Input
-                id="streamUrl"
-                type="url"
-                value={newChannel.stream_url}
-                onChange={(e) => setNewChannel({ ...newChannel, stream_url: e.target.value })}
-                placeholder="https://example.com/stream.m3u8"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="category">Category *</Label>
-              <Select value={newChannel.category_id} onValueChange={(value) => setNewChannel({ ...newChannel, category_id: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(category => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="md:col-span-2">
-              <Label htmlFor="authCookie">Authentication Cookie (Optional)</Label>
-              <Textarea
-                id="authCookie"
-                value={newChannel.auth_cookie}
-                onChange={(e) => setNewChannel({ ...newChannel, auth_cookie: e.target.value })}
-                placeholder="Cookie string for authenticated streams"
-                rows={2}
-                disabled={loading}
-              />
-            </div>
-          </div>
-          
-          <div className="flex gap-2">
-            <Button onClick={handleSaveChannel} disabled={loading || !newChannel.name.trim() || !newChannel.stream_url.trim() || !newChannel.category_id}>
-              <Save className="w-4 h-4 mr-2" />
-              {loading ? 'Saving...' : editingChannel ? 'Update' : 'Add'}
-            </Button>
-            {editingChannel && (
-              <Button variant="outline" onClick={resetForm} disabled={loading}>
-                <X className="w-4 h-4 mr-2" />
-                Cancel
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Channels ({filteredChannels.length})</CardTitle>
-          <div className="flex gap-2">
-            <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
-                {categories.map(category => (
-                  <SelectItem key={category.id} value={category.id}>
-                    {category.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {filteredChannels.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
-              No channels found.
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {filteredChannels.map(channel => (
-                <div key={channel.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={channel.logo_url || '/placeholder.svg'}
-                      alt={channel.name}
-                      className="w-10 h-10 object-contain bg-white rounded"
-                      onError={(e) => {
-                        e.currentTarget.src = '/placeholder.svg';
-                      }}
-                    />
-                    <div>
-                      <div className="font-medium">{channel.name}</div>
-                      <div className="text-sm text-muted-foreground flex items-center gap-2">
-                         <span>{categories.find(c => c.id === channel.category_id)?.name || 'Uncategorized'}</span>
-                        {channel.stream_url && (
-                          <Badge variant="secondary">Live</Badge>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditChannel(channel)}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteChannel(channel.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
-
-// M3U Playlists Manager
-const M3UPlaylistsManager = () => {
-  const [playlists, setPlaylists] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [editingPlaylist, setEditingPlaylist] = useState<any | null>(null);
-  const [newPlaylist, setNewPlaylist] = useState({ name: '', url: '', auto_sync: false, category_id: '' });
-  const [loading, setLoading] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    fetchPlaylists();
-    fetchCategories();
-  }, []);
-
-  const fetchPlaylists = async () => {
-    try {
-        const data = await getM3UPlaylists();
-        setPlaylists(data);
-    } catch (error) {
-        console.error('Error fetching playlists:', error);
-    }
-  };
-  
-  const fetchCategories = async () => {
-    try {
-        const data = await getCategories();
-        setCategories(data);
-    } catch (error) {
-        console.error('Error fetching categories:', error);
-    }
-  };
-
-  const handleSavePlaylist = async () => {
-    if (!newPlaylist.name.trim() || !newPlaylist.url.trim() || !newPlaylist.category_id) {
-      toast({ title: "Error", description: "Name, URL, and Category are required", variant: "destructive" });
-      return;
-    }
-    setLoading(true);
-    try {
-      // NOTE: auto_sync is not used in the form UI, but included in state
-      const playlistData = { ...newPlaylist }; 
-      if (editingPlaylist) {
-        await updateM3UPlaylist(editingPlaylist.id, playlistData);
-        toast({ title: "Success", description: "Playlist updated" });
-      } else {
-        await createM3UPlaylist(playlistData);
-        toast({ title: "Success", description: "Playlist created" });
-      }
-      resetForm();
-      await fetchPlaylists();
-    } catch (error) {
-        console.error('Error saving playlist:', error);
-      toast({ title: "Error", description: "Failed to save playlist", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSyncPlaylist = async (playlist: any) => {
-    if (!playlist.category_id) {
-        toast({ title: "Error", description: "Please assign a category to this playlist before syncing.", variant: "destructive" });
-        return;
-    }
-    setSyncingId(playlist.id);
-    toast({ title: "Syncing...", description: `Importing channels from ${playlist.name}`});
-
-    try {
-        // Step 1: Fetch the M3U content
-        const response = await fetch(playlist.url);
-        if (!response.ok) throw new Error(`Failed to fetch playlist URL: ${response.statusText}`);
-        
-        const m3uText = await response.text();
-        
-        // Step 2: Parse the M3U content
-        const parsedChannels = parseM3U(m3uText);
-
-        if (parsedChannels.length === 0) {
-            toast({ title: "Warning", description: "No channels found in the playlist file.", variant: "default"});
-            return;
-        }
-
-        // Step 3: Create channels in the database
-        let importedCount = 0;
-        for (const pChannel of parsedChannels) {
-            try {
-                // Only create if stream_url is present
-                if (pChannel.link) { 
-                    await createChannel({
-                        name: pChannel.name || 'Unnamed Channel',
-                        stream_url: pChannel.link,
-                        logo_url: pChannel.logo || undefined,
-                        category_id: playlist.category_id,
-                    });
-                    importedCount++;
-                }
-            } catch (channelError) {
-                console.warn(`Skipping channel due to error: ${pChannel.name}`, channelError);
-            }
-        }
-        
-        // Step 4: Update playlist status
-        await updateM3UPlaylist(playlist.id, { last_sync: new Date().toISOString(), status: 'synced' });
-        await fetchPlaylists();
-
-        toast({ title: "Sync Complete", description: `Successfully imported ${importedCount} channels.`});
-
-    } catch (error: any) {
-        console.error('M3U Sync Error:', error);
-        toast({ title: "Sync Failed", description: error.message, variant: "destructive"});
-        await updateM3UPlaylist(playlist.id, { status: 'error' });
-        await fetchPlaylists();
-    } finally {
-        setSyncingId(null);
-    }
-  };
-
-  const handleEditPlaylist = (playlist: any) => {
-    setEditingPlaylist(playlist);
-    setNewPlaylist({
-      name: playlist.name,
-      url: playlist.url,
-      auto_sync: playlist.auto_sync || false,
-      category_id: playlist.category_id,
-    });
-  };
-
-  const handleDeletePlaylist = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this playlist?')) return;
-    
-    try {
-      await deleteM3UPlaylist(id);
-      toast({ title: "Success", description: "Playlist deleted successfully" });
-      await fetchPlaylists();
-    } catch (error) {
-      console.error('Error deleting playlist:', error);
-      toast({ title: "Error", description: "Failed to delete playlist", variant: "destructive" });
-    }
-  };
-  
-  const resetForm = () => {
-    setNewPlaylist({ name: '', url: '', auto_sync: false, category_id: '' });
-    setEditingPlaylist(null);
-  };
-  
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{editingPlaylist ? 'Edit M3U Playlist' : 'Add M3U Playlist'}</CardTitle>
-          <CardDescription>Add M3U playlist URLs to automatically import channels</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <Label htmlFor="playlistName">Playlist Name *</Label>
-                <Input id="playlistName" value={newPlaylist.name} onChange={(e) => setNewPlaylist({ ...newPlaylist, name: e.target.value })} placeholder="e.g., Sports Channels" disabled={loading} />
-            </div>
-            <div>
-              <Label htmlFor="category">Assign to Category *</Label>
-              <Select value={newPlaylist.category_id} onValueChange={(value) => setNewPlaylist({ ...newPlaylist, category_id: value })}>
-                <SelectTrigger><SelectValue placeholder="Select Category" /></SelectTrigger>
-                <SelectContent>
-                  {categories.map(category => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="md:col-span-2">
-                <Label htmlFor="playlistUrl">M3U URL *</Label>
-                <Input id="playlistUrl" type="url" value={newPlaylist.url} onChange={(e) => setNewPlaylist({ ...newPlaylist, url: e.target.value })} placeholder="https://example.com/playlist.m3u" disabled={loading} />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={handleSavePlaylist} disabled={loading || !newPlaylist.name.trim() || !newPlaylist.url.trim() || !newPlaylist.category_id}>
-              <Save className="w-4 h-4 mr-2" />
-              {loading ? 'Saving...' : editingPlaylist ? 'Update' : 'Add'}
-            </Button>
-            {editingPlaylist && <Button variant="outline" onClick={resetForm} disabled={loading}><X className="w-4 h-4 mr-2" />Cancel</Button>}
-          </div>
-        </CardContent>
-      </Card>
+      <h2 className="text-2xl font-bold">Channels Management</h2>
       
-      <Card>
-        <CardHeader><CardTitle>M3U Playlists ({playlists.length})</CardTitle></CardHeader>
-        <CardContent>
-           {playlists.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
-              No playlists added yet.
-            </p>
-          ) : (
-            <div className="space-y-2">
-               {playlists.map(playlist => (
-                <div key={playlist.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <LinkIcon className="w-8 h-8 text-primary" />
-                    <div>
-                      <div className="font-medium">{playlist.name}</div>
-                      <div className="text-sm text-muted-foreground">URL: {playlist.url}</div>
-                      <div className="text-sm text-muted-foreground">Category: {categories.find(c => c.id === playlist.category_id)?.name || 'Not Set'}</div>
-                      <div className="flex gap-2 mt-1">
-                        <Badge variant={playlist.status === 'synced' ? 'default' : playlist.status === 'error' ? 'destructive' : 'secondary'}>
-                           {playlist.status || 'pending'}
-                        </Badge>
-                        {playlist.last_sync && (
-                          <Badge variant="outline">
-                            Last sync: {new Date(playlist.last_sync).toLocaleDateString()}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => handleSyncPlaylist(playlist)} 
-                        disabled={syncingId === playlist.id || !playlist.category_id}
-                    >
-                        <RefreshCw className={`w-4 h-4 mr-2 ${syncingId === playlist.id ? 'animate-spin' : ''}`} />
-                        {syncingId === playlist.id ? 'Syncing...' : 'Sync Now'}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleEditPlaylist(playlist)}><Edit className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDeletePlaylist(playlist.id)}><Trash2 className="w-4 h-4" /></Button>
-                  </div>
-                </div>
+      {/* Add/Edit Form */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">
+          {editingChannel ? 'Edit Channel' : 'Add New Channel'}
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Channel Name *</label>
+            <input
+              type="text"
+              value={newChannel.name}
+              onChange={(e) => setNewChannel({ ...newChannel, name: e.target.value })}
+              placeholder="e.g., CNN, BBC News, ESPN"
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Logo URL</label>
+            <input
+              type="url"
+              value={newChannel.logoUrl}
+              onChange={(e) => setNewChannel({ ...newChannel, logoUrl: e.target.value })}
+              placeholder="https://example.com/logo.png"
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Stream URL (m3u8) *</label>
+            <input
+              type="url"
+              value={newChannel.streamUrl}
+              onChange={(e) => setNewChannel({ ...newChannel, streamUrl: e.target.value })}
+              placeholder="https://example.com/stream.m3u8"
+              className="form-input"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Category *</label>
+            <select
+              value={newChannel.categoryId}
+              onChange={(e) => setNewChannel({ ...newChannel, categoryId: e.target.value })}
+              className="form-input"
+              disabled={loading}
+            >
+              <option value="">Select Category</option>
+              {categories.map(category => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
               ))}
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-2">Authentication Cookie (Optional)</label>
+            <textarea
+              value={newChannel.authCookie}
+              onChange={(e) => setNewChannel({ ...newChannel, authCookie: e.target.value })}
+              placeholder="Cookie string for authenticated streams (if required)"
+              className="form-input min-h-[60px] font-mono text-xs"
+              rows={2}
+              disabled={loading}
+            />
+          </div>
+        </div>
+        
+        {/* Channel Preview */}
+        {newChannel.name && newChannel.categoryId && (
+          <div className="mt-4 p-3 bg-bg-secondary rounded-lg">
+            <p className="text-sm text-text-secondary mb-2">Preview:</p>
+            <div className="flex items-center gap-3">
+              <img
+                src={newChannel.logoUrl || '/placeholder.svg'}
+                alt={newChannel.name}
+                className="w-10 h-10 object-contain bg-white rounded"
+                onError={(e) => {
+                  e.currentTarget.src = '/placeholder.svg';
+                }}
+              />
+              <div>
+                <div className="font-medium">{newChannel.name}</div>
+                <div className="text-sm text-text-secondary">
+                  {categories.find(c => c.id === newChannel.categoryId)?.name}
+                  {newChannel.streamUrl && (
+                    <span className="ml-2 text-green-500">• Stream URL provided</span>
+                  )}
+                </div>
+              </div>
             </div>
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={handleSaveChannel}
+            disabled={loading || !newChannel.name.trim() || !newChannel.streamUrl.trim() || !newChannel.categoryId}
+            className="btn-primary"
+          >
+            <Save size={16} />
+            {loading ? 'Saving...' : editingChannel ? 'Update Channel' : 'Add Channel'}
+          </button>
+          {editingChannel && (
+            <button onClick={resetForm} className="btn-secondary" disabled={loading}>
+              <X size={16} />
+              Cancel
+            </button>
           )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
-
-// Analytics Manager
-const AnalyticsManager = () => {
-  const [visitorAnalytics, setVisitorAnalytics] = useState<any[]>([]);
-  const [channelAnalytics, setChannelAnalytics] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetchAnalytics();
-  }, []);
-
-  const fetchAnalytics = async () => {
-    setLoading(true);
-    try {
-      const [visitors, channels] = await Promise.all([
-        getVisitorAnalytics(),
-        getChannelAnalytics(),
-      ]);
-      setVisitorAnalytics(visitors);
-      setChannelAnalytics(channels);
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const uniqueVisitors = new Set(visitorAnalytics.map(v => v.ip_address)).size;
-  const totalViews = channelAnalytics.length;
-  const popularChannels = channelAnalytics.reduce((acc: any, view: any) => {
-    acc[view.channel_id] = (acc[view.channel_id] || 0) + 1;
-    return acc;
-  }, {});
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-               Unique Visitors
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{uniqueVisitors}</div>
-            <p className="text-muted-foreground">Total unique IP addresses</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Eye className="w-5 h-5" />
-              Channel Views
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totalViews}</div>
-            <p className="text-muted-foreground">Total channel views</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Popular Channels
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {Object.keys(popularChannels).length}
-            </div>
-            <p className="text-muted-foreground">Channels with views</p>
-          </CardContent>
-        </Card>
+        </div>
       </div>
 
-      <Tabs defaultValue="visitors" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="visitors">Visitor Logs</TabsTrigger>
-          <TabsTrigger value="channels">Channel Analytics</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="visitors">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Visitors</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="text-center py-8">Loading...</div>
-              ) : visitorAnalytics.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No visitor data available
-                </div>
-              ) : (
-                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {visitorAnalytics.slice(0, 100).map((visitor, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                         <div className="font-medium">{visitor.ip_address}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {visitor.page_url}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(visitor.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="text-sm">
-                        {visitor.country && <Badge variant="outline">{visitor.country}</Badge>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="channels">
-          <Card>
-            <CardHeader>
-              <CardTitle>Channel Views</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="text-center py-8">Loading...</div>
-              ) : channelAnalytics.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No channel analytics available
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {channelAnalytics.slice(0, 100).map((view, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                        <div className="font-medium">Channel: {view.channel_id}</div>
-                        <div className="text-sm text-muted-foreground">
-                          IP: {view.ip_address}
-                        </div>
-                         <div className="text-xs text-muted-foreground">
-                          {new Date(view.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="text-sm">
-                        {view.watch_duration && (
-                          <Badge variant="outline">{view.watch_duration}s</Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-};
-
-// IP Management
-const IPManagement = () => {
-  const [blockedIPs, setBlockedIPs] = useState<any[]>([]);
-  const [newIP, setNewIP] = useState('');
-  const [reason, setReason] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    fetchBlockedIPs();
-  }, []);
-
-  const fetchBlockedIPs = async () => {
-    try {
-      const data = await getBlockedIPs();
-      setBlockedIPs(data);
-    } catch (error) {
-      console.error('Error fetching blocked IPs:', error);
-    }
-  };
-
-  const handleBlockIP = async () => {
-    if (!newIP.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter an IP address",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await blockIP({
-        ip_address: newIP.trim(),
-        reason: reason.trim() || 'Manually blocked',
-        blocked_by: 'admin',
-      });
-      
-      toast({
-        title: "Success",
-        description: "IP address blocked successfully",
-      });
-      
-      setNewIP('');
-      setReason('');
-      await fetchBlockedIPs();
-    } catch (error) {
-      console.error('Error blocking IP:', error);
-      toast({
-        title: "Error",
-        description: "Failed to block IP address",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUnblockIP = async (id: string) => {
-    if (!confirm('Are you sure you want to unblock this IP?')) return;
-    
-    try {
-      await unblockIP(id);
-      toast({
-        title: "Success",
-        description: "IP address unblocked successfully",
-      });
-      await fetchBlockedIPs();
-    } catch (error) {
-      console.error('Error unblocking IP:', error);
-      toast({
-        title: "Error",
-        description: "Failed to unblock IP address",
-        variant: "destructive",
-      });
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Ban className="w-5 h-5" />
-            Block IP Address
-          </CardTitle>
-           <CardDescription>
-            Block specific IP addresses from accessing your platform
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-               <Label htmlFor="ipAddress">IP Address *</Label>
-              <Input
-                id="ipAddress"
-                value={newIP}
-                onChange={(e) => setNewIP(e.target.value)}
-                placeholder="192.168.1.1"
-                disabled={loading}
-              />
-            </div>
-            <div>
-              <Label htmlFor="reason">Reason</Label>
-              <Input
-                id="reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Abuse, spam, etc."
-                disabled={loading}
-              />
-            </div>
-          </div>
-          
-          <Button onClick={handleBlockIP} disabled={loading || !newIP.trim()}>
-            <Ban className="w-4 h-4 mr-2" />
-            {loading ? 'Blocking...' : 'Block IP'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Blocked IPs ({blockedIPs.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {blockedIPs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No blocked IPs
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {blockedIPs.map((blockedIP) => (
-                <div key={blockedIP.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+      {/* Channels List */}
+      <div className="bg-card border border-border rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-4">
+          Existing Channels ({channels.length})
+        </h3>
+        {channels.length === 0 ? (
+          <p className="text-text-secondary text-center py-8">
+            No channels created yet. Add your first channel above.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {channels.map(channel => (
+              <div key={channel.id} className="flex items-center justify-between p-3 bg-bg-secondary rounded-lg">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={channel.logoUrl}
+                    alt={channel.name}
+                    className="w-10 h-10 object-contain bg-white rounded"
+                    onError={(e) => {
+                      e.currentTarget.src = '/placeholder.svg';
+                    }}
+                  />
                   <div>
-                    <div className="font-medium flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-destructive" />
-                       {blockedIP.ip_address}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Reason: {blockedIP.reason}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Blocked: {new Date(blockedIP.blocked_at).toLocaleString()}
+                    <div className="font-medium">{channel.name}</div>
+                    <div className="text-sm text-text-secondary flex items-center gap-2">
+                      <span>{channel.categoryName}</span>
+                      {channel.streamUrl && (
+                        <span className="text-green-500">• Live</span>
+                      )}
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUnblockIP(blockedIP.id)}
-                  >
-                    Unblock
-                  </Button>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEditChannel(channel)}
+                    className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
+                    title="Edit channel"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteChannel(channel.id)}
+                    className="p-2 text-destructive hover:text-red-400 transition-colors"
+                    title="Delete channel"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -1217,9 +694,6 @@ const AdminDashboard = () => {
     { path: '/admin', label: 'Dashboard', exact: true },
     { path: '/admin/categories', label: 'Categories' },
     { path: '/admin/channels', label: 'Channels' },
-    { path: '/admin/playlists', label: 'M3U Playlists' },
-    { path: '/admin/analytics', label: 'Analytics' },
-    { path: '/admin/ips', label: 'IP Management' },
   ];
 
   return (
@@ -1229,16 +703,16 @@ const AdminDashboard = () => {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Shield size={24} className="text-accent" />
-            <h1 className="text-xl font-bold">Live TV Pro Admin</h1>
-           </div>
+            <h1 className="text-xl font-bold">IPTV Admin Panel</h1>
+          </div>
           <div className="flex items-center gap-4">
-            <span className="text-muted-foreground text-sm">
-              {user?.email}
+            <span className="text-text-secondary text-sm">
+              Logged in as: {user?.email}
             </span>
-            <Button variant="outline" onClick={handleLogout}>
-              <LogOut size={16} className="mr-2" />
+            <button onClick={handleLogout} className="btn-secondary">
+              <LogOut size={16} />
               Logout
-            </Button>
+            </button>
           </div>
         </div>
       </header>
@@ -1254,14 +728,14 @@ const AdminDashboard = () => {
                     ? location.pathname === item.path 
                     : location.pathname.startsWith(item.path);
                   
-                   return (
+                  return (
                     <li key={item.path}>
                       <Link
                         to={item.path}
                         className={`block p-3 rounded-lg transition-colors ${
                           isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            ? 'bg-accent text-white'
+                            : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
                         }`}
                       >
                         {item.label}
@@ -1280,65 +754,41 @@ const AdminDashboard = () => {
                 <div className="space-y-6">
                   <h2 className="text-2xl font-bold">Dashboard</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Quick Actions</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        <Link to="/admin/categories">
-                          <Button variant="outline" className="w-full justify-start">
-                            <Plus size={16} className="mr-2" />
-                            Manage Categories
-                          </Button>
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-2">Quick Actions</h3>
+                      <div className="space-y-2">
+                        <Link to="/admin/categories" className="btn-secondary w-full justify-start">
+                          <Plus size={16} />
+                          Manage Categories
                         </Link>
-                        <Link to="/admin/channels">
-                          <Button variant="outline" className="w-full justify-start">
-                            <Plus size={16} className="mr-2" />
-                            Manage Channels
-                          </Button>
+                        <Link to="/admin/channels" className="btn-secondary w-full justify-start">
+                          <Plus size={16} />
+                          Manage Channels
                         </Link>
-                        <Link to="/admin/playlists">
-                          <Button variant="outline" className="w-full justify-start">
-                            <Upload size={16} className="mr-2" />
-                            M3U Playlists
-                          </Button>
-                        </Link>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>System Info</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-1 text-sm">
-                        <div>Live TV Pro Admin</div>
-                        <div>Version 2.0.0</div>
+                      </div>
+                    </div>
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-2">System Info</h3>
+                      <div className="text-text-secondary space-y-1 text-sm">
+                        <div>IPTV Management System</div>
+                        <div>Version 1.0.0</div>
                         <div>Admin: {user?.email}</div>
-                        <Badge className="mt-2">System Online</Badge>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Features</CardTitle>
-                      </CardHeader>
-                      <CardContent className="text-sm space-y-2">
-                        <p>• M3U playlist support</p>
-                        <p>• Visitor tracking & analytics</p>
-                        <p>• IP blocking system</p>
-                        <p>• Category-wise channel management</p>
-                      </CardContent>
-                    </Card>
+                        <div className="text-green-500 mt-2">System Online</div>
+                      </div>
+                    </div>
+                    <div className="bg-card border border-border rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-2">Important Notes</h3>
+                      <div className="text-text-secondary text-sm space-y-2">
+                        <p>• Stream URLs must be valid m3u8 or mp4 links</p>
+                        <p>• Category slugs are auto-generated from names</p>
+                        <p>• Always test streams before publishing</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               } />
               <Route path="/categories" element={<CategoriesManager />} />
               <Route path="/channels" element={<ChannelsManager />} />
-              <Route path="/playlists" element={<M3UPlaylistsManager />} />
-              <Route path="/analytics" element={<AnalyticsManager />} />
-              <Route path="/ips" element={<IPManagement />} />
-              {/* Optional: Redirect or 404 handler */}
-              <Route path="*" element={<Navigate to="/admin" replace />} />
             </Routes>
           </div>
         </div>
@@ -1350,13 +800,13 @@ const AdminDashboard = () => {
 // Main Admin Component
 const Admin = () => {
   const { user, loading } = useAuth();
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          {/* Simple loading indicator, assuming 'loading-spinner' is a defined CSS class */}
-          <div className="loading-spinner mx-auto mb-4"></div> 
-          <p className="text-muted-foreground">Loading...</p>
+          <div className="loading-spinner mx-auto mb-4"></div>
+          <p className="text-text-secondary">Loading...</p>
         </div>
       </div>
     );
