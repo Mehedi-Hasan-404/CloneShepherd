@@ -6,7 +6,7 @@ import { Category } from '@/types';
 import CategoryCard from '@/components/CategoryCard';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Tv } from 'lucide-react';
+import { AlertCircle, Tv, Sparkles } from 'lucide-react';
 
 const Home = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -43,9 +43,9 @@ const Home = () => {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-4 w-96" />
+        <div className="text-center space-y-2">
+          <Skeleton className="h-8 w-64 mx-auto" />
+          <Skeleton className="h-4 w-96 mx-auto" />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -70,14 +70,17 @@ const Home = () => {
 
   return (
     <div className="space-y-6">
-      <div className="text-center space-y-2">
+      <div className="text-center space-y-4">
         <div className="flex items-center justify-center gap-3 mb-4">
-          <Tv size={32} className="text-accent" />
-          <h1 className="text-3xl font-bold">Live TV Pro</h1>
+          <Tv size={32} className="text-accent animate-pulse" />
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-accent to-blue-500 bg-clip-text text-transparent">
+            Live TV Pro
+          </h1>
+          <Sparkles size={24} className="text-yellow-500 animate-bounce" />
         </div>
         <p className="text-text-secondary max-w-2xl mx-auto">
           Discover and enjoy live television channels from around the world. 
-          Browse by category to find your favorite content.
+          Browse by category to find your favorite content with seamless streaming.
         </p>
       </div>
 
@@ -93,9 +96,16 @@ const Home = () => {
         <>
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Browse Categories</h2>
-            <span className="text-sm text-text-secondary">
-              {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'} available
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text-secondary">
+                {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'} available
+              </span>
+              {categories.some(cat => cat.m3uUrl) && (
+                <span className="text-xs bg-green-500/10 text-green-500 px-2 py-1 rounded">
+                  M3U Enabled
+                </span>
+              )}
+            </div>
           </div>
           
           <div className="category-grid">
