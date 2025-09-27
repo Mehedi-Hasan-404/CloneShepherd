@@ -14,7 +14,208 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      blocked_ips: {
+        Row: {
+          blocked_at: string | null
+          blocked_by: string | null
+          id: string
+          ip_address: unknown
+          reason: string | null
+        }
+        Insert: {
+          blocked_at?: string | null
+          blocked_by?: string | null
+          id?: string
+          ip_address: unknown
+          reason?: string | null
+        }
+        Update: {
+          blocked_at?: string | null
+          blocked_by?: string | null
+          id?: string
+          ip_address?: unknown
+          reason?: string | null
+        }
+        Relationships: []
+      }
+      categories: {
+        Row: {
+          created_at: string | null
+          icon_url: string | null
+          id: string
+          name: string
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          icon_url?: string | null
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          icon_url?: string | null
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      channel_analytics: {
+        Row: {
+          channel_id: string | null
+          created_at: string | null
+          id: string
+          ip_address: unknown | null
+          quality: string | null
+          user_agent: string | null
+          watch_duration: number | null
+        }
+        Insert: {
+          channel_id?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address?: unknown | null
+          quality?: string | null
+          user_agent?: string | null
+          watch_duration?: number | null
+        }
+        Update: {
+          channel_id?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address?: unknown | null
+          quality?: string | null
+          user_agent?: string | null
+          watch_duration?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_analytics_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      channels: {
+        Row: {
+          auth_cookie: string | null
+          category_id: string | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          logo_url: string | null
+          name: string
+          stream_url: string
+          updated_at: string | null
+        }
+        Insert: {
+          auth_cookie?: string | null
+          category_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          logo_url?: string | null
+          name: string
+          stream_url: string
+          updated_at?: string | null
+        }
+        Update: {
+          auth_cookie?: string | null
+          category_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          logo_url?: string | null
+          name?: string
+          stream_url?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channels_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      m3u_playlists: {
+        Row: {
+          auto_sync: boolean | null
+          created_at: string | null
+          id: string
+          last_sync: string | null
+          name: string
+          status: string | null
+          updated_at: string | null
+          url: string
+        }
+        Insert: {
+          auto_sync?: boolean | null
+          created_at?: string | null
+          id?: string
+          last_sync?: string | null
+          name: string
+          status?: string | null
+          updated_at?: string | null
+          url: string
+        }
+        Update: {
+          auto_sync?: boolean | null
+          created_at?: string | null
+          id?: string
+          last_sync?: string | null
+          name?: string
+          status?: string | null
+          updated_at?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
+      visitor_logs: {
+        Row: {
+          city: string | null
+          country: string | null
+          created_at: string | null
+          id: string
+          ip_address: unknown
+          is_blocked: boolean | null
+          page_url: string | null
+          referrer: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          city?: string | null
+          country?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address: unknown
+          is_blocked?: boolean | null
+          page_url?: string | null
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          city?: string | null
+          country?: string | null
+          created_at?: string | null
+          id?: string
+          ip_address?: unknown
+          is_blocked?: boolean | null
+          page_url?: string | null
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
