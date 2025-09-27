@@ -9,7 +9,7 @@ export interface Category {
   name: string;
   slug: string;
   iconUrl?: string;
-  m3uUrl?: string; // Added M3U playlist URL
+  m3uUrl?: string; // M3U playlist URL
 }
 
 export interface PublicChannel {
