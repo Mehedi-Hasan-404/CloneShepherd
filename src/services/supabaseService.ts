@@ -13,7 +13,6 @@ export const trackVisitor = async (visitorData: {
     const { error } = await supabase
       .from('visitor_logs')
       .insert(visitorData);
-    
     if (error) console.error('Error tracking visitor:', error);
   } catch (error) {
     console.error('Error tracking visitor:', error);
@@ -32,7 +31,6 @@ export const trackChannelView = async (channelViewData: {
     const { error } = await supabase
       .from('channel_analytics')
       .insert(channelViewData);
-    
     if (error) console.error('Error tracking channel view:', error);
   } catch (error) {
     console.error('Error tracking channel view:', error);
@@ -57,7 +55,6 @@ export const getCategories = async () => {
     .from('categories')
     .select('*')
     .order('name');
-  
   if (error) throw error;
   return data;
 };
@@ -72,7 +69,6 @@ export const createCategory = async (category: {
     .insert(category)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -88,7 +84,6 @@ export const updateCategory = async (id: string, updates: {
     .eq('id', id)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -98,7 +93,6 @@ export const deleteCategory = async (id: string) => {
     .from('categories')
     .delete()
     .eq('id', id);
-  
   if (error) throw error;
 };
 
@@ -106,13 +100,9 @@ export const deleteCategory = async (id: string) => {
 export const getChannels = async () => {
   const { data, error } = await supabase
     .from('channels')
-    .select(`
-      *,
-      categories!inner(name)
-    `)
+    .select(`*, categories(id, name, slug)`) // CORRECTED QUERY
     .eq('is_active', true)
     .order('name');
-  
   if (error) throw error;
   return data;
 };
@@ -124,7 +114,6 @@ export const getChannelsByCategory = async (categoryId: string) => {
     .eq('category_id', categoryId)
     .eq('is_active', true)
     .order('name');
-  
   if (error) throw error;
   return data;
 };
@@ -132,14 +121,10 @@ export const getChannelsByCategory = async (categoryId: string) => {
 export const getChannel = async (id: string) => {
   const { data, error } = await supabase
     .from('channels')
-    .select(`
-      *,
-      categories!inner(name, slug)
-    `)
+    .select(`*, categories(id, name, slug)`) // CORRECTED QUERY
     .eq('id', id)
     .eq('is_active', true)
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -156,7 +141,6 @@ export const createChannel = async (channel: {
     .insert(channel)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -175,7 +159,6 @@ export const updateChannel = async (id: string, updates: {
     .eq('id', id)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -185,7 +168,6 @@ export const deleteChannel = async (id: string) => {
     .from('channels')
     .delete()
     .eq('id', id);
-  
   if (error) throw error;
 };
 
@@ -195,7 +177,6 @@ export const getM3UPlaylists = async () => {
     .from('m3u_playlists')
     .select('*')
     .order('created_at', { ascending: false });
-  
   if (error) throw error;
   return data;
 };
@@ -204,13 +185,13 @@ export const createM3UPlaylist = async (playlist: {
   name: string;
   url: string;
   auto_sync?: boolean;
+  category_id: string; // Added field
 }) => {
   const { data, error } = await supabase
     .from('m3u_playlists')
     .insert(playlist)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -221,6 +202,7 @@ export const updateM3UPlaylist = async (id: string, updates: {
   auto_sync?: boolean;
   status?: string;
   last_sync?: string;
+  category_id?: string; // Added field
 }) => {
   const { data, error } = await supabase
     .from('m3u_playlists')
@@ -228,7 +210,6 @@ export const updateM3UPlaylist = async (id: string, updates: {
     .eq('id', id)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -238,7 +219,6 @@ export const deleteM3UPlaylist = async (id: string) => {
     .from('m3u_playlists')
     .delete()
     .eq('id', id);
-  
   if (error) throw error;
 };
 
@@ -248,17 +228,13 @@ export const getVisitorAnalytics = async (startDate?: string, endDate?: string) 
     .from('visitor_logs')
     .select('*')
     .order('created_at', { ascending: false });
-  
   if (startDate) {
     query = query.gte('created_at', startDate);
   }
-  
   if (endDate) {
     query = query.lte('created_at', endDate);
   }
-  
   const { data, error } = await query.limit(1000);
-  
   if (error) throw error;
   return data;
 };
@@ -266,22 +242,15 @@ export const getVisitorAnalytics = async (startDate?: string, endDate?: string) 
 export const getChannelAnalytics = async (startDate?: string, endDate?: string) => {
   let query = supabase
     .from('channel_analytics')
-    .select(`
-      *,
-      channels!channel_analytics_channel_id_fkey(name, logo_url)
-    `)
+    .select(`*, channels!channel_analytics_channel_id_fkey(name, logo_url)`)
     .order('created_at', { ascending: false });
-  
   if (startDate) {
     query = query.gte('created_at', startDate);
   }
-  
   if (endDate) {
     query = query.lte('created_at', endDate);
   }
-  
   const { data, error } = await query.limit(1000);
-  
   if (error) throw error;
   return data;
 };
@@ -292,7 +261,6 @@ export const getBlockedIPs = async () => {
     .from('blocked_ips')
     .select('*')
     .order('blocked_at', { ascending: false });
-  
   if (error) throw error;
   return data;
 };
@@ -307,7 +275,6 @@ export const blockIP = async (ipData: {
     .insert(ipData)
     .select()
     .single();
-  
   if (error) throw error;
   return data;
 };
@@ -317,7 +284,6 @@ export const unblockIP = async (id: string) => {
     .from('blocked_ips')
     .delete()
     .eq('id', id);
-  
   if (error) throw error;
 };
 
@@ -327,11 +293,9 @@ export const checkIPBlocked = async (ip: string): Promise<boolean> => {
     .select('id')
     .eq('ip_address', ip)
     .single();
-  
   if (error && error.code !== 'PGRST116') {
     console.error('Error checking blocked IP:', error);
     return false;
   }
-  
   return !!data;
 };
