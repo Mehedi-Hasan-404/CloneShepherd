@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getChannel, getChannelsByCategory } from '@/services/supabaseService';
+import { collection, getDocs, doc, getDoc, query, where, limit, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { useRecents } from '@/contexts/RecentsContext';
-import { useChannelTracking } from '@/hooks/useChannelTracking';
 import { PublicChannel, AdminChannel, Category } from '@/types';
 
 import VideoPlayer from '@/components/VideoPlayer';
@@ -20,9 +20,6 @@ const ChannelPlayer = () => {
   const [relatedChannels, setRelatedChannels] = useState<PublicChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Track channel viewing analytics
-  useChannelTracking(channelId || '');
 
   // Helper function to generate slug from name
   const generateSlug = (name: string): string => {
@@ -47,64 +44,83 @@ const ChannelPlayer = () => {
         setLoading(true);
         setError(null);
 
-        // Fetch channel data from Supabase
-        const channelData = await getChannel(channelId);
-        
-        if (!channelData) {
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), 10000)
+        );
+
+        // Fetch channel data
+        const channelDocRef = doc(db, 'channels', channelId);
+        const channelDoc = await Promise.race([getDoc(channelDocRef), timeoutPromise]) as any;
+
+        if (!channelDoc.exists()) {
           setError('Channel not found.');
           setLoading(false);
           return;
         }
 
+        const channelData = { id: channelDoc.id, ...channelDoc.data() } as AdminChannel;
+        
         // Validate required fields
-        if (!channelData.stream_url) {
+        if (!channelData.streamUrl) {
           setError('Stream URL not available for this channel.');
           setLoading(false);
           return;
         }
 
-        // Transform to AdminChannel format
-        const adminChannelData: AdminChannel = {
-          id: channelData.id,
-          name: channelData.name,
-          logoUrl: channelData.logo_url,
-          streamUrl: channelData.stream_url,
-          categoryId: channelData.category_id,
-          categoryName: channelData.categories.name,
-          authCookie: channelData.auth_cookie,
-        };
+        if (!channelData.streamUrl.trim()) {
+          setError('Invalid stream URL for this channel.');
+          setLoading(false);
+          return;
+        }
 
-        setChannel(adminChannelData);
+        setChannel(channelData);
         
-        // Set category data
-        setCategory({
-          id: channelData.category_id,
-          name: channelData.categories.name,
-          slug: channelData.categories.slug,
-          iconUrl: '',
-        });
-        
-        // Add to recents
-        const { streamUrl, authCookie, ...publicChannelData } = adminChannelData;
+        // Add to recents, excluding admin-only fields for type safety
+        const { streamUrl, authCookie, ...publicChannelData } = channelData;
         addRecent(publicChannelData);
+
+        // Fetch category data for proper slug generation
+        try {
+          const categoryDocRef = doc(db, 'categories', channelData.categoryId);
+          const categoryDoc = await Promise.race([getDoc(categoryDocRef), timeoutPromise]) as any;
+          
+          if (categoryDoc.exists()) {
+            const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
+            setCategory(categoryData);
+          }
+        } catch (categoryError) {
+          console.warn('Could not fetch category data:', categoryError);
+          // Don't fail the entire component if category fetch fails
+        }
 
         // Fetch related channels
         try {
-          const relatedData = await getChannelsByCategory(channelData.category_id);
-          const relatedChannels = relatedData
-            .filter((ch: any) => ch.id !== channelId)
-            .slice(0, 4)
-            .map((ch: any) => ({
-              id: ch.id,
-              name: ch.name,
-              logoUrl: ch.logo_url,
-              categoryId: ch.category_id,
-              categoryName: channelData.categories.name,
-            })) as PublicChannel[];
+          const channelsCol = collection(db, 'channels');
+          const relatedQuery = query(
+            channelsCol,
+            where('categoryId', '==', channelData.categoryId),
+            where('__name__', '!=', channelId),
+            orderBy('__name__'),
+            limit(4)
+          );
           
-          setRelatedChannels(relatedChannels);
+          const relatedSnapshot = await Promise.race([getDocs(relatedQuery), timeoutPromise]) as any;
+          const relatedData = relatedSnapshot.docs.map((doc: any) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.name,
+              logoUrl: data.logoUrl,
+              categoryId: data.categoryId,
+              categoryName: data.categoryName,
+            };
+          }) as PublicChannel[];
+          
+          setRelatedChannels(relatedData);
         } catch (relatedError) {
           console.warn('Could not fetch related channels:', relatedError);
+          // Don't fail if related channels can't be fetched
           setRelatedChannels([]);
         }
 

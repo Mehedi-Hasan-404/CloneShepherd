@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { getCategories, getChannelsByCategory } from '@/services/supabaseService';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
 import ChannelCard from '@/components/ChannelCard';
 import { Search, X, Tv } from 'lucide-react';
@@ -35,42 +36,73 @@ const CategoryChannels = () => {
         setLoading(true);
         setError(null);
         
-        // Fetch all categories to find matching one
-        const categories = await getCategories();
+        // Add timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), 10000)
+        );
         
-        // Find category by slug or normalized slug
-        const matchingCategory = categories.find((cat: Category) => {
-          const normalizedSlug = normalizeSlug(cat.slug || cat.name);
-          const normalizedInputSlug = normalizeSlug(slug);
-          return cat.slug === slug || 
-                 normalizedSlug === normalizedInputSlug || 
-                 normalizeSlug(cat.name) === normalizedInputSlug;
-        });
+        // First, try to find category by exact slug match
+        const categoriesCol = collection(db, 'categories');
+        let categoryQuery = query(categoriesCol, where('slug', '==', slug));
+        let categorySnapshot = await Promise.race([getDocs(categoryQuery), timeoutPromise]) as any;
         
-        if (!matchingCategory) {
-          setError('Category not found');
-          setLoading(false);
-          return;
+        // If no exact match found, try with normalized slug
+        if (categorySnapshot.empty) {
+          categoryQuery = query(categoriesCol);
+          const allCategoriesSnapshot = await Promise.race([getDocs(categoryQuery), timeoutPromise]) as any;
+          
+          // Find category by normalized slug or name
+          const matchingCategory = allCategoriesSnapshot.docs.find((doc: any) => {
+            const data = doc.data();
+            const normalizedSlug = normalizeSlug(data.slug || data.name);
+            const normalizedInputSlug = normalizeSlug(slug);
+            return normalizedSlug === normalizedInputSlug || 
+                   normalizeSlug(data.name) === normalizedInputSlug;
+          });
+          
+          if (!matchingCategory) {
+            setError('Category not found');
+            setLoading(false);
+            return;
+          }
+          
+          categorySnapshot = {
+            docs: [matchingCategory],
+            empty: false
+          };
         }
+
+        const categoryData = {
+          id: categorySnapshot.docs[0].id,
+          ...categorySnapshot.docs[0].data()
+        } as Category;
         
-        setCategory(matchingCategory);
+        setCategory(categoryData);
 
         // Fetch channels for this category
+        const channelsCol = collection(db, 'channels');
+        const channelsQuery = query(
+          channelsCol, 
+          where('categoryId', '==', categoryData.id),
+          orderBy('name')
+        );
+        
         try {
-          const channelsData = await getChannelsByCategory(matchingCategory.id);
+          const channelsSnapshot = await Promise.race([getDocs(channelsQuery), timeoutPromise]) as any;
           
-          const publicChannels = channelsData.map((channel: any) => ({
-            id: channel.id,
-            name: channel.name,
-            logoUrl: channel.logo_url,
-            categoryId: channel.category_id,
-            categoryName: matchingCategory.name,
+          const channelsData = channelsSnapshot.docs.map((doc: any) => ({
+            id: doc.id,
+            name: doc.data().name,
+            logoUrl: doc.data().logoUrl,
+            categoryId: doc.data().categoryId,
+            categoryName: doc.data().categoryName,
           })) as PublicChannel[];
           
-          setChannels(publicChannels);
-          setFilteredChannels(publicChannels);
+          setChannels(channelsData);
+          setFilteredChannels(channelsData);
         } catch (channelError) {
           console.error('Error fetching channels:', channelError);
+          // Set empty channels array instead of failing completely
           setChannels([]);
           setFilteredChannels([]);
         }

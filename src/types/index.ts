@@ -4,8 +4,7 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
-  iconUrl?: string;
-  icon_url?: string;
+  iconUrl: string;
 }
 
 export interface PublicChannel {

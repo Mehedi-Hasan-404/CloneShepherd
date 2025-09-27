@@ -33,18 +33,15 @@ export function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement;
 
-    // Use requestAnimationFrame to batch DOM updates and reduce lag
-    requestAnimationFrame(() => {
-      root.classList.remove('light', 'dark');
+    root.classList.remove('light', 'dark');
 
-      if (theme === 'light') {
-        root.setAttribute('data-theme', 'light');
-        root.classList.add('light');
-      } else {
-        root.removeAttribute('data-theme');
-        root.classList.add('dark');
-      }
-    });
+    if (theme === 'light') {
+      root.setAttribute('data-theme', 'light');
+      root.classList.add('light');
+    } else {
+      root.removeAttribute('data-theme');
+      root.classList.add('dark');
+    }
   }, [theme]);
 
   const value = {
