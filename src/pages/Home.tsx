@@ -72,11 +72,14 @@ const Home = () => {
     <div className="space-y-6">
       <div className="text-center space-y-4">
         <div className="flex items-center justify-center gap-3 mb-4">
-          <Tv size={32} className="text-accent animate-pulse" />
+          <Tv size={32} className="text-accent" style={{ animationDelay: '0.8s' }} />
           <h1 className="text-3xl font-bold bg-gradient-to-r from-accent to-blue-500 bg-clip-text text-transparent">
             Live TV Pro
           </h1>
-          <Sparkles size={24} className="text-yellow-500 animate-bounce" />
+          <Sparkles size={24} className="text-yellow-500" style={{ 
+            animation: 'bounce 2s infinite',
+            animationDelay: '1.2s'
+          }} />
         </div>
         <p className="text-text-secondary max-w-2xl mx-auto">
           Discover and enjoy live television channels from around the world. 
