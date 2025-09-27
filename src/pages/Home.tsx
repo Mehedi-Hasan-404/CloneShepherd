@@ -72,13 +72,16 @@ const Home = () => {
     <div className="space-y-6">
       <div className="text-center space-y-4">
         <div className="flex items-center justify-center gap-3 mb-4">
-          <Tv size={32} className="text-accent animate-pulse" style={{ animationDelay: '0.8s' }} />
+          <Tv size={32} className="text-accent" style={{ 
+            animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            animationDelay: '1s'
+          }} />
           <h1 className="text-3xl font-bold bg-gradient-to-r from-accent to-blue-500 bg-clip-text text-transparent">
             Live TV Pro
           </h1>
           <Sparkles size={24} className="text-yellow-500" style={{ 
             animation: 'bounce 2s infinite',
-            animationDelay: '1.2s'
+            animationDelay: '1.5s'
           }} />
         </div>
         <p className="text-text-secondary max-w-2xl mx-auto">
