@@ -104,8 +104,6 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: hsl(var(--background));
     color: hsl(var(--foreground));
-    padding-top: var(--header-height);
-    padding-bottom: var(--bottom-nav-height);
     line-height: 1.5;
     transition: background-color 0.15s ease, color 0.15s ease;
     transform: translateZ(0); /* Force hardware acceleration */
@@ -181,9 +179,8 @@
     background: hsl(var(--bg-tertiary));
   }
 
-  /* Main Content */
+  /* Main Content - No longer needs height calculation */
   .main-content {
-    min-height: calc(100vh - var(--header-height) - var(--bottom-nav-height));
     padding: 1rem;
   }
 
@@ -272,7 +269,7 @@
     transition: background-color 0.2s ease, transform 0.2s ease;
     will-change: transform;
   }
-  
+
   .theme-toggle:hover {
     background: hsl(var(--accent) / 0.1);
     transform: scale(1.05);
@@ -598,10 +595,6 @@
     border-radius: 50%;
     border-top-color: hsl(var(--accent));
     animation: spin 1s ease-in-out infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   /* Enhanced Animations */
