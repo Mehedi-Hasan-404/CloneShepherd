@@ -1,32 +1,69 @@
+// /src/pages/Favorites.tsx
 import { useFavorites } from '@/contexts/FavoritesContext';
 import ChannelCard from '@/components/ChannelCard';
-import { Star } from 'lucide-react';
+import { Heart, Trash2 } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const Favorites = () => {
-  const { favorites } = useFavorites();
+  const { favorites, removeFavorite } = useFavorites();
+
+  const handleClearAll = () => {
+    if (confirm('Are you sure you want to remove all favorites? This action cannot be undone.')) {
+      favorites.forEach(channel => removeFavorite(channel.id));
+    }
+  };
+
+  if (favorites.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <Heart size={48} className="text-text-secondary mx-auto mb-4" />
+        <h2 className="text-xl font-semibold mb-2">No Favorite Channels</h2>
+        <p className="text-text-secondary mb-6">
+          Start adding channels to your favorites by clicking the star icon on any channel.
+        </p>
+        <Alert>
+          <Heart className="h-4 w-4" />
+          <AlertDescription>
+            Your favorite channels will be saved locally and persist between sessions.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-6">
-        <Star size={24} className="text-yellow-500" />
-        <h1 className="text-2xl font-bold">Favorite Channels</h1>
-      </div>
-
-      {favorites.length > 0 ? (
-        <div className="channel-grid">
-          {favorites.map(favorite => (
-            <ChannelCard key={favorite.id} channel={favorite} />
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <Star size={48} className="text-yellow-500 mb-4 mx-auto" />
-          <h3 className="text-xl font-semibold mb-2">No Favorite Channels</h3>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Heart size={24} className="text-red-500" />
+            Favorite Channels
+          </h1>
           <p className="text-text-secondary">
-            Add channels to your favorites by clicking the star icon on any channel card.
+            {favorites.length} channel{favorites.length !== 1 ? 's' : ''} in your favorites
           </p>
         </div>
-      )}
+        
+        {favorites.length > 0 && (
+          <Button 
+            variant="outline" 
+            onClick={handleClearAll}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 size={16} />
+            Clear All
+          </Button>
+        )}
+      </div>
+
+      <div className="channel-grid">
+        {favorites
+          .sort((a, b) => b.addedAt - a.addedAt)
+          .map(channel => (
+            <ChannelCard key={channel.id} channel={channel} />
+          ))}
+      </div>
     </div>
   );
 };
