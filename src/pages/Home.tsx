@@ -102,16 +102,9 @@ const Home = () => {
         <>
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Browse Categories</h2>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-text-secondary">
-                {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'} available
-              </span>
-              {categories.some(cat => cat.m3uUrl) && (
-                <span className="text-xs bg-green-500/10 text-green-500 px-2 py-1 rounded">
-                  M3U Enabled
-                </span>
-              )}
-            </div>
+            <span className="text-sm text-text-secondary">
+              {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'} available
+            </span>
           </div>
           
           <div className="category-grid">
