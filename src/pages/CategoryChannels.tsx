@@ -46,9 +46,9 @@ const CategoryChannels = () => {
           categoryName,
         };
       } else if (line && !line.startsWith('#') && currentChannel.name) {
-        // This is a stream URL
+        // This is a stream URL - Create clean ID without m3u prefix
         const channel: PublicChannel = {
-          id: `m3u_${categoryId}_${channels.length}`,
+          id: `${categoryId}_${channels.length}_${Date.now()}`, // Clean ID
           name: currentChannel.name,
           logoUrl: currentChannel.logoUrl || '/placeholder.svg',
           streamUrl: line,
@@ -110,7 +110,7 @@ const CategoryChannels = () => {
           allChannels = [...allChannels, ...m3uChannels];
         } catch (m3uError) {
           console.error('Error loading M3U playlist:', m3uError);
-          setError('Failed to load M3U playlist. Please check the playlist URL.');
+          setError('Failed to load channels. Please try again.');
         }
       }
 
@@ -182,9 +182,6 @@ const CategoryChannels = () => {
         </h1>
         <p className="text-text-secondary">
           {channels.length} channel{channels.length !== 1 ? 's' : ''} available
-          {category.m3uUrl && (
-            <span className="ml-2 text-green-500">• M3U Playlist Loaded</span>
-          )}
         </p>
       </div>
 
@@ -193,10 +190,7 @@ const CategoryChannels = () => {
           <Tv size={48} className="text-text-secondary mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No Channels Available</h3>
           <p className="text-text-secondary">
-            {category.m3uUrl 
-              ? "M3U playlist might be empty or invalid." 
-              : "No channels have been added to this category yet."
-            }
+            No channels have been added to this category yet.
           </p>
         </div>
       ) : (
