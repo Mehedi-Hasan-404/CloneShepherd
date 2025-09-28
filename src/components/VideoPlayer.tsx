@@ -210,8 +210,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     console.log('Initializing HLS player with URL:', url);
     
     try {
-      await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest', 'hls-script');
-      const Hls = window.Hls;
+      // Use local hls.js instead of CDN
+      const Hls = (await import('hls.js')).default;
       
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({ 
@@ -307,8 +307,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     console.log('Initializing Shaka player with URL:', url);
     
     try {
-      await loadScript('https://ajax.googleapis.com/ajax/libs/shaka-player/4.3.4/shaka-player.compiled.js', 'shaka-script');
-      const shaka = window.shaka;
+      // Use local shaka-player instead of CDN
+      const shaka = (await import('shaka-player/dist/shaka-player.ui.js')).default;
       
       // Install polyfills
       shaka.polyfill.installAll();
@@ -411,6 +411,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         availableQualities: qualities,
         currentQuality: -1, // -1 for auto
         isMuted: video.muted,
+        isPlaying: true
       }));
       
       console.log('Shaka player initialized successfully');
