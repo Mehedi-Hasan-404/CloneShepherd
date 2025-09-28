@@ -32,7 +32,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const progressRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ isDragging: boolean; clickX: number } | null>(null); // NEW: Ref for drag state
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -47,7 +46,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showSettings: false,
     currentQuality: -1, // -1 for auto
     availableQualities: [] as QualityLevel[],
-    isSeeking: false, // NEW: State to track if the user is dragging the seek handle
   });
 
   const destroyHLS = useCallback(() => {
@@ -255,16 +253,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
     const handleTimeUpdate = () => {
       if (isMountedRef.current && video) {
-        // Only update currentTime if not actively seeking/dragging
-        if (!dragStartRef.current?.isDragging) {
-          const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
-          setPlayerState(prev => ({ 
-            ...prev, 
-            currentTime: video.currentTime,
-            duration: video.duration,
-            buffered: buffered
-          }));
-        }
+        const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+        setPlayerState(prev => ({ 
+          ...prev, 
+          currentTime: video.currentTime,
+          duration: video.duration,
+          buffered: buffered
+        }));
       }
     };
     const handleVolumeChange = () => {
@@ -286,10 +281,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('volumechange', handleVolumeChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    
-    // NEW: Drag Move/End listeners
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
 
     return () => {
       video.removeEventListener('play', handlePlay);
@@ -299,85 +290,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('volumechange', handleVolumeChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      
-      // NEW: Cleanup Drag listeners
-      document.removeEventListener('mousemove', handleDragMove);
-      document.removeEventListener('mouseup', handleDragEnd);
     };
-  }, []); // Dependencies are now correct: drag handlers are defined outside
-
-  // --- NEW SEEK/DRAG LOGIC ---
-
-  const calculateNewTime = useCallback((clientX: number): number | null => {
-    const video = videoRef.current;
-    const progressBar = progressRef.current;
-    if (!video || !progressBar || !isFinite(video.duration)) return null;
-
-    const rect = progressBar.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); // Clamp clickX within bounds
-    const percentage = clickX / rect.width;
-    return percentage * video.duration;
   }, []);
-
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const video = videoRef.current;
-    if (!video || !isFinite(video.duration)) return;
-
-    dragStartRef.current = {
-      isDragging: true,
-      clickX: e.clientX,
-    };
-    setPlayerState(prev => ({ ...prev, isSeeking: true, isPlaying: false }));
-    video.pause();
-  }, []);
-
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    if (!dragStartRef.current?.isDragging) return;
-
-    const newTime = calculateNewTime(e.clientX);
-    if (newTime !== null) {
-      // Update currentTime state visually, but don't set video.currentTime yet
-      setPlayerState(prev => ({ ...prev, currentTime: newTime }));
-    }
-  }, [calculateNewTime]);
-
-  const handleDragEnd = useCallback(() => {
-    if (!dragStartRef.current?.isDragging) return;
-
-    const video = videoRef.current;
-    if (video) {
-      // Final update to video element's currentTime
-      video.currentTime = playerState.currentTime;
-      
-      // If the player was playing before the drag started, resume play
-      if (!video.paused) {
-        video.play().catch(console.error);
-      }
-    }
-
-    // Reset drag state
-    dragStartRef.current = null;
-    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused }));
-  }, [playerState.currentTime]);
-
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    // Prevent seeking via click immediately after a drag operation
-    if (dragStartRef.current?.isDragging) {
-      dragStartRef.current = null; // Clear the ref just in case
-      return;
-    }
-
-    const video = videoRef.current;
-    if (!video) return;
-
-    const newTime = calculateNewTime(e.clientX);
-    if (newTime !== null) {
-      video.currentTime = newTime;
-    }
-  }, [calculateNewTime]);
-
-  // --- END NEW SEEK/DRAG LOGIC ---
   
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -431,11 +345,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, 3000);
-  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
   const handlePlayerClick = useCallback(() => {
     // Close settings menu if open
@@ -456,15 +370,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.showControls, playerState.showSettings, showControlsTemporarily]);
 
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    const progressBar = progressRef.current;
+    if (!video || !progressBar || !isFinite(video.duration)) return;
+
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = clickX / rect.width;
+    const newTime = percentage * video.duration;
+    
+    video.currentTime = newTime;
+  }, []);
+
   const handleMouseMove = useCallback(() => {
     showControlsTemporarily();
   }, [showControlsTemporarily]);
 
   const handleMouseLeave = useCallback(() => {
-    if (playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
+    if (playerState.isPlaying && !playerState.showSettings) {
       setPlayerState(prev => ({ ...prev, showControls: false }));
     }
-  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
   // Error state
   if (playerState.error && !playerState.isLoading) {
@@ -485,11 +412,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
     );
   }
-
-  // Calculate the current time percentage for the progress bar
-  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 
-    ? (playerState.currentTime / playerState.duration) * 100 
-    : 0;
 
   return (
     <div 
@@ -518,9 +440,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Controls Overlay */}
       <div 
         className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${
-          playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'opacity-100' : 'opacity-0' // Show controls when seeking
+          playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
         }`}
-        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'auto' : 'none' }}
+        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
       >
         {/* Settings Menu */}
         {playerState.showSettings && (
@@ -575,37 +497,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="mb-4 pointer-events-auto">
             <div 
               ref={progressRef}
-              // NEW: Increased height and padding for easier interaction
-              className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" 
+              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group"
               onClick={handleProgressClick}
             >
-              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white bg-opacity-30 rounded-full">
-                {/* Buffered Progress */}
-                <div 
-                  className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
-                  style={{ 
-                    width: isFinite(playerState.duration) && playerState.duration > 0 
-                      ? `${(playerState.buffered / playerState.duration) * 100}%` 
-                      : '0%' 
-                  }}
-                />
-                {/* Current Progress */}
-                <div 
-                  className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
-                  style={{ 
-                    width: `${currentTimePercentage}%`
-                  }}
-                />
-                
-                {/* NEW: Seek Handle */}
-                <div 
-                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-red-500 transition-all duration-150 ease-out 
-                    ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`}
-                  style={{ left: `${currentTimePercentage}%` }}
-                  onMouseDown={(e) => { e.stopPropagation(); handleDragStart(e); }}
-                  onClick={(e) => e.stopPropagation()} // Prevent handle click from triggering handleProgressClick
-                />
-              </div>
+              {/* Buffered Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.buffered / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              />
+              {/* Current Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.currentTime / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              />
             </div>
           </div>
 
