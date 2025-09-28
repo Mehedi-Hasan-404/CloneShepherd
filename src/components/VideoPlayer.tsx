@@ -117,7 +117,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       // Validate stream URL
       if (!streamUrl.includes('m3u8') && !streamUrl.includes('mp4')) {
-        throw new Error('Invalid stream URL format');
+        console.warn('Stream URL may not be a valid format:', streamUrl);
       }
 
       // Try to load HLS.js
@@ -405,7 +405,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       // If controls are hidden, show them
       showControlsTemporarily();
-      }, [playerState.showControls, showControlsTemporarily]);
+    }
+  }, [playerState.showControls, showControlsTemporarily]);
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
