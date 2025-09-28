@@ -317,8 +317,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
+        // Unlock orientation when exiting fullscreen
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
       } else {
         await container.requestFullscreen();
+        // Try to lock to landscape orientation on mobile
+        if (screen.orientation && screen.orientation.lock) {
+          try {
+            await screen.orientation.lock('landscape');
+          } catch (orientationError) {
+            console.warn('Could not lock orientation:', orientationError);
+          }
+        }
       }
     } catch (err) {
       console.error('Fullscreen error:', err);
@@ -444,17 +456,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }`}
         style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
       >
-        {/* Settings Menu */}
+        {/* Settings Menu - Fixed positioning with scrollable container */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48">
-            <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
-            <div className="space-y-1">
+          <div className="absolute top-4 right-4 bg-black/95 rounded-lg border border-white/20 min-w-48 max-w-64 max-h-80 overflow-hidden shadow-lg">
+            <div className="p-3 border-b border-white/10">
+              <div className="text-white text-sm font-medium">Quality</div>
+            </div>
+            <div className="max-h-60 overflow-y-auto">
               <button
                 onClick={() => changeQuality(-1)}
-                className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   playerState.currentQuality === -1 
                     ? 'bg-blue-600 text-white' 
-                    : 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                 }`}
               >
                 Auto
@@ -463,13 +477,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <button
                   key={quality.index}
                   onClick={() => changeQuality(quality.index)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                     playerState.currentQuality === quality.index 
                       ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-700'
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                   }`}
                 >
-                  {quality.height}p ({quality.bitrate} kbps)
+                  {quality.height > 0 ? `${quality.height}p` : 'Auto'} 
+                  {quality.bitrate > 0 && ` (${quality.bitrate} kbps)`}
                 </button>
               ))}
             </div>
@@ -493,16 +508,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Bottom Controls */}
         <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-          {/* Progress Bar */}
+          {/* Enhanced Progress Bar */}
           <div className="mb-4 pointer-events-auto">
             <div 
               ref={progressRef}
-              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group"
+              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group hover:h-2 transition-all duration-200"
               onClick={handleProgressClick}
             >
               {/* Buffered Progress */}
               <div 
-                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
+                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full transition-all duration-200"
                 style={{ 
                   width: isFinite(playerState.duration) && playerState.duration > 0 
                     ? `${(playerState.buffered / playerState.duration) * 100}%` 
@@ -511,14 +526,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               />
               {/* Current Progress */}
               <div 
-                className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
+                className="absolute top-0 left-0 h-full bg-red-500 rounded-full transition-all duration-200"
                 style={{ 
                   width: isFinite(playerState.duration) && playerState.duration > 0 
                     ? `${(playerState.currentTime / playerState.duration) * 100}%` 
                     : '0%' 
                 }}
-              />
+              >
+                {/* Progress handle - only visible on hover for seekable content */}
+                {isFinite(playerState.duration) && playerState.duration > 0 && (
+                  <div className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-lg" />
+                )}
+              </div>
             </div>
+            {/* Time Display */}
+            {isFinite(playerState.duration) && playerState.duration > 0 && (
+              <div className="flex justify-between text-xs text-white/80 mt-1">
+                <span>{formatTime(playerState.currentTime)}</span>
+                <span>{formatTime(playerState.duration)}</span>
+              </div>
+            )}
           </div>
 
           {/* Control Buttons */}
@@ -556,7 +583,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 className={`text-white hover:text-blue-300 transition-colors p-2 ${
                   playerState.showSettings ? 'text-blue-400' : ''
                 }`}
-                title="Settings"
+                title="Quality Settings"
               >
                 <Settings size={18} />
               </button>
@@ -566,7 +593,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <button
               onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
               className="text-white hover:text-blue-300 transition-colors p-2"
-              title="Fullscreen"
+              title={playerState.isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
             >
               {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
