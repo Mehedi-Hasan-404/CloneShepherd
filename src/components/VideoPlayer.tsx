@@ -1,5 +1,6 @@
+// /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture } from 'lucide-react';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -7,6 +8,12 @@ interface VideoPlayerProps {
   autoPlay?: boolean;
   muted?: boolean;
   className?: string;
+}
+
+interface QualityLevel {
+  height: number;
+  bitrate: number;
+  index: number;
 }
 
 const PLAYER_LOAD_TIMEOUT = 30000; // 30 seconds
@@ -24,6 +31,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const progressRef = useRef<HTMLDivElement>(null);
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -32,7 +40,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     error: null as string | null,
     isFullscreen: false,
     showControls: true,
-    volume: muted ? 0 : 0.8,
+    currentTime: 0,
+    duration: 0,
+    buffered: 0,
+    showSettings: false,
+    currentQuality: -1, // -1 for auto
+    availableQualities: [] as QualityLevel[],
+    isPiPSupported: false,
+    isPiPActive: false,
   });
 
   const destroyHLS = useCallback(() => {
@@ -51,7 +66,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const loadHLS = useCallback(() => {
     return new Promise<void>((resolve, reject) => {
-      // Try to load HLS.js dynamically
       if (window.Hls) {
         resolve();
         return;
@@ -64,6 +78,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       document.head.appendChild(script);
     });
   }, []);
+
+  const formatTime = (time: number): string => {
+    if (!isFinite(time)) return "LIVE";
+    const hours = Math.floor(time / 3600);
+    const minutes = Math.floor((time % 3600) / 60);
+    const seconds = Math.floor(time % 60);
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const initializePlayer = useCallback(async () => {
     if (!streamUrl || !videoRef.current) {
@@ -116,8 +142,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           
+          // Get available quality levels
+          const levels = hls.levels.map((level: any, index: number) => ({
+            height: level.height || 0,
+            bitrate: Math.round(level.bitrate / 1000), // Convert to kbps
+            index: index
+          }));
+          
           video.muted = playerState.isMuted;
-          video.volume = playerState.volume;
           
           if (autoPlay) {
             video.play().catch((e) => {
@@ -125,7 +157,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setPlayerState(prev => ({ ...prev, error: 'Click play to start the stream' }));
             });
           }
-          setPlayerState(prev => ({ ...prev, isLoading: false, error: null }));
+          setPlayerState(prev => ({ 
+            ...prev, 
+            isLoading: false, 
+            error: null,
+            availableQualities: levels,
+            currentQuality: hls.currentLevel
+          }));
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -143,7 +181,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               case Hls.ErrorTypes.MEDIA_ERROR:
                 errorMessage = 'Media error - trying to recover...';
                 hls.recoverMediaError();
-                return; // Don't set error state yet
+                return;
               default:
                 errorMessage = `Stream error: ${data.details}`;
                 break;
@@ -162,7 +200,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           video.muted = playerState.isMuted;
-          video.volume = playerState.volume;
           
           if (autoPlay) {
             video.play().catch((e) => {
@@ -199,10 +236,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         error: error instanceof Error ? error.message : 'Failed to initialize player' 
       }));
     }
-  }, [streamUrl, autoPlay, playerState.isMuted, playerState.volume, destroyHLS, loadHLS]);
+  }, [streamUrl, autoPlay, playerState.isMuted, destroyHLS, loadHLS]);
 
   useEffect(() => {
     isMountedRef.current = true;
+    
+    // Check PiP support
+    if (document.pictureInPictureEnabled) {
+      setPlayerState(prev => ({ ...prev, isPiPSupported: true }));
+    }
+    
     initializePlayer();
     
     return () => {
@@ -220,14 +263,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handlePause = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: false }));
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
+    const handleTimeUpdate = () => {
+      if (isMountedRef.current && video) {
+        const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+        setPlayerState(prev => ({ 
+          ...prev, 
+          currentTime: video.currentTime,
+          duration: video.duration,
+          buffered: buffered
+        }));
+      }
+    };
     const handleVolumeChange = () => {
       if (isMountedRef.current && video) {
-        setPlayerState(prev => ({ ...prev, volume: video.volume, isMuted: video.muted }));
+        setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
       }
     };
     const handleFullscreenChange = () => {
       if (isMountedRef.current) {
-        setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
+        const isFullscreen = !!document.fullscreenElement;
+        setPlayerState(prev => ({ ...prev, isFullscreen: isFullscreen }));
+        
+        // Handle orientation for mobile
+        if (isFullscreen && screen.orientation) {
+          screen.orientation.lock('landscape').catch(() => {
+            // Orientation lock failed, that's okay
+          });
+        }
+      }
+    };
+    const handlePiPChange = () => {
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isPiPActive: document.pictureInPictureElement === video }));
       }
     };
 
@@ -235,7 +302,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('playing', handlePlaying);
+    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('volumechange', handleVolumeChange);
+    video.addEventListener('enterpictureinpicture', handlePiPChange);
+    video.addEventListener('leavepictureinpicture', handlePiPChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
@@ -243,7 +313,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('volumechange', handleVolumeChange);
+      video.removeEventListener('enterpictureinpicture', handlePiPChange);
+      video.removeEventListener('leavepictureinpicture', handlePiPChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
@@ -262,15 +335,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    // Only toggle mute, don't change volume to avoid stream reload
     video.muted = !video.muted;
-  }, []);
-
-  const handleVolumeChange = useCallback((newVolume: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    const volume = Math.max(0, Math.min(1, newVolume));
-    video.volume = volume;
-    video.muted = volume === 0;
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
@@ -287,6 +353,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       console.error('Fullscreen error:', err);
     }
   }, []);
+
+  const togglePiP = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !playerState.isPiPSupported) return;
+    
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.error('PiP error:', err);
+    }
+  }, [playerState.isPiPSupported]);
+
+  const changeQuality = useCallback((qualityIndex: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = qualityIndex;
+      setPlayerState(prev => ({ ...prev, currentQuality: qualityIndex, showSettings: false }));
+    }
+  }, []);
   
   const handleRetry = useCallback(() => {
     initializePlayer();
@@ -301,21 +389,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, 3000);
-  }, [playerState.isPlaying]);
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  const handlePlayerClick = useCallback(() => {
+    if (playerState.showControls) {
+      // If controls are showing, hide them
+      setPlayerState(prev => ({ ...prev, showControls: false }));
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    } else {
+      // If controls are hidden, show them
+      showControlsTemporarily();
+      }, [playerState.showControls, showControlsTemporarily]);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    const progressBar = progressRef.current;
+    if (!video || !progressBar || !isFinite(video.duration)) return;
+
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = clickX / rect.width;
+    const newTime = percentage * video.duration;
+    
+    video.currentTime = newTime;
+  }, []);
 
   const handleMouseMove = useCallback(() => {
     showControlsTemporarily();
   }, [showControlsTemporarily]);
 
   const handleMouseLeave = useCallback(() => {
-    if (playerState.isPlaying) {
+    if (playerState.isPlaying && !playerState.showSettings) {
       setPlayerState(prev => ({ ...prev, showControls: false }));
     }
-  }, [playerState.isPlaying]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
   // Error state
   if (playerState.error && !playerState.isLoading) {
@@ -343,6 +456,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       className={`relative bg-black ${playerState.isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'} ${className}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handlePlayerClick}
     >
       <video
         ref={videoRef}
@@ -360,12 +474,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
+      {/* Controls Overlay */}
       <div 
-        className={`absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${
           playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
         }`}
-        onClick={togglePlay}
+        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
       >
+        {/* Top Info */}
         <div className="absolute top-4 left-4 pointer-events-none">
           <div className="text-white font-medium text-lg">{channelName}</div>
           <div className="flex items-center gap-2 text-red-400 text-sm mt-1">
@@ -374,6 +490,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
+        {/* Settings Menu */}
+        {playerState.showSettings && (
+          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48">
+            <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
+            <div className="space-y-1">
+              <button
+                onClick={() => changeQuality(-1)}
+                className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                  playerState.currentQuality === -1 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                Auto
+              </button>
+              {playerState.availableQualities.map((quality) => (
+                <button
+                  key={quality.index}
+                  onClick={() => changeQuality(quality.index)}
+                  className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                    playerState.currentQuality === quality.index 
+                      ? 'bg-blue-600 text-white' 
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  {quality.height}p ({quality.bitrate} kbps)
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Center Play Button */}
         {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <button
@@ -388,7 +537,47 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
 
-        <div className="absolute bottom-4 left-4 right-4 pointer-events-none">
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+          {/* Progress Bar */}
+          <div className="mb-4 pointer-events-auto">
+            <div 
+              ref={progressRef}
+              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group"
+              onClick={handleProgressClick}
+            >
+              {/* Buffered Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.buffered / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              />
+              {/* Current Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.currentTime / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              />
+              {/* Hover Thumb */}
+              <div 
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ 
+                  left: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.currentTime / playerState.duration) * 100}%` 
+                    : '0%',
+                  transform: 'translateX(-50%) translateY(-50%)'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Control Buttons */}
           <div className="flex items-center gap-3 pointer-events-auto">
             <button
               onClick={(e) => { e.stopPropagation(); togglePlay(); }}
@@ -396,32 +585,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
+            
             <button
               onClick={(e) => { e.stopPropagation(); toggleMute(); }}
               className="text-white hover:text-blue-300 transition-colors p-2"
             >
-              {playerState.isMuted || playerState.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={playerState.isMuted ? 0 : playerState.volume}
-              onChange={(e) => {
-                e.stopPropagation();
-                handleVolumeChange(parseFloat(e.target.value));
-              }}
-              className="w-16 h-1 bg-white bg-opacity-30 rounded-lg appearance-none cursor-pointer
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
-                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
-                [&::-webkit-slider-thumb]:cursor-pointer"
-            />
+
+            {/* Time Display */}
+            <div className="text-white text-sm">
+              {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+            </div>
+
             <div className="flex-1"></div>
-            <span className="text-white text-opacity-70 text-sm">Auto Quality</span>
+
+            {/* Picture in Picture */}
+            {playerState.isPiPSupported && (
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePiP(); }}
+                className={`text-white hover:text-blue-300 transition-colors p-2 ${
+                  playerState.isPiPActive ? 'text-blue-400' : ''
+                }`}
+                title="Picture in Picture"
+              >
+                <PictureInPicture size={18} />
+              </button>
+            )}
+
+            {/* Settings */}
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
+              }}
+              className={`text-white hover:text-blue-300 transition-colors p-2 ${
+                playerState.showSettings ? 'text-blue-400' : ''
+              }`}
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+
+            {/* Fullscreen */}
             <button
               onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
               className="text-white hover:text-blue-300 transition-colors p-2"
+              title="Fullscreen"
             >
               {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
