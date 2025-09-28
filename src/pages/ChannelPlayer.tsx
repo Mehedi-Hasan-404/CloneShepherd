@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowLeft, Star, Share2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Star, Share2, AlertCircle, Search, Play } from 'lucide-react';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { useRecents } from '@/contexts/RecentsContext';
 import { toast } from "@/components/ui/sonner";
@@ -18,6 +18,9 @@ const ChannelPlayer = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
   const [channel, setChannel] = useState<PublicChannel | null>(null);
+  const [allChannels, setAllChannels] = useState<PublicChannel[]>([]);
+  const [filteredChannels, setFilteredChannels] = useState<PublicChannel[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
@@ -26,8 +29,17 @@ const ChannelPlayer = () => {
   useEffect(() => {
     if (channelId) {
       fetchChannel();
+      fetchAllChannels();
     }
   }, [channelId]);
+
+  useEffect(() => {
+    const filtered = allChannels.filter(ch => 
+      ch.id !== channel?.id && // Exclude current playing channel
+      ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setFilteredChannels(filtered);
+  }, [searchQuery, allChannels, channel]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
     const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
@@ -79,6 +91,47 @@ const ChannelPlayer = () => {
     } catch (error) {
       console.error('Error fetching M3U playlist:', error);
       throw error;
+    }
+  };
+
+  const fetchAllChannels = async () => {
+    try {
+      // Fetch all categories and their channels
+      const categoriesRef = collection(db, 'categories');
+      const categoriesSnapshot = await getDocs(categoriesRef);
+      
+      let allChannelsList: PublicChannel[] = [];
+
+      // Get manual channels
+      const channelsRef = collection(db, 'channels');
+      const channelsSnapshot = await getDocs(channelsRef);
+      const manualChannels = channelsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as PublicChannel[];
+      allChannelsList = [...allChannelsList, ...manualChannels];
+
+      // Get M3U channels from all categories
+      for (const categoryDoc of categoriesSnapshot.docs) {
+        const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
+        
+        if (categoryData.m3uUrl) {
+          try {
+            const m3uChannels = await fetchM3UPlaylist(
+              categoryData.m3uUrl,
+              categoryData.id,
+              categoryData.name
+            );
+            allChannelsList = [...allChannelsList, ...m3uChannels];
+          } catch (m3uError) {
+            console.error('Error loading M3U playlist for category:', categoryData.name, m3uError);
+          }
+        }
+      }
+
+      setAllChannels(allChannelsList);
+    } catch (error) {
+      console.error('Error fetching all channels:', error);
     }
   };
 
@@ -207,6 +260,10 @@ const ChannelPlayer = () => {
     }
   };
 
+  const handleChannelSelect = (selectedChannel: PublicChannel) => {
+    navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -330,6 +387,77 @@ const ChannelPlayer = () => {
           muted={false}
           className="w-full"
         />
+      </div>
+
+      {/* Search Bar for Other Channels */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Other Channels</h2>
+        
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary w-5 h-5" />
+          <input
+            type="text"
+            placeholder="Search all channels..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="form-input pl-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Other Channels Grid */}
+        {filteredChannels.length === 0 && searchQuery ? (
+          <div className="text-center py-8">
+            <Search size={48} className="text-text-secondary mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No channels found</h3>
+            <p className="text-text-secondary">
+              No channels match "{searchQuery}". Try a different search term.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 max-h-96 overflow-y-auto">
+            {filteredChannels.slice(0, 50).map(ch => (
+              <div
+                key={ch.id}
+                className="bg-card border border-border rounded-lg p-3 cursor-pointer hover:bg-bg-secondary transition-colors group"
+                onClick={() => handleChannelSelect(ch)}
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={ch.logoUrl}
+                    alt={ch.name}
+                    className="w-10 h-10 object-contain bg-white rounded flex-shrink-0"
+                    onError={(e) => {
+                      e.currentTarget.src = '/placeholder.svg';
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-medium text-sm truncate group-hover:text-accent transition-colors">
+                      {ch.name}
+                    </h4>
+                    <p className="text-xs text-text-secondary truncate">{ch.categoryName}</p>
+                  </div>
+                  <Play size={16} className="text-text-secondary group-hover:text-accent transition-colors flex-shrink-0" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {filteredChannels.length > 50 && (
+          <p className="text-center text-text-secondary text-sm">
+            Showing first 50 channels. Use search to find specific channels.
+          </p>
+        )}
       </div>
     </div>
   );
