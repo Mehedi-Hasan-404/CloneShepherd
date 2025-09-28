@@ -1,5 +1,3 @@
-Use this code - 
-
 // /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
