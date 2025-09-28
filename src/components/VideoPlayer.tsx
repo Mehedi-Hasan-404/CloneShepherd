@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx
+// /src/components/VideoPlayer.tsx - Fixed Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
 
@@ -17,6 +17,7 @@ interface QualityLevel {
 }
 
 const PLAYER_LOAD_TIMEOUT = 30000; // 30 seconds
+const CONTROLS_HIDE_DELAY = 3000; // 3 seconds
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
   streamUrl,
@@ -37,6 +38,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const progressRef = useRef<HTMLDivElement>(null);
+  const lastActivityRef = useRef<number>(Date.now());
 
   // Refs for robust seeking logic to prevent stale state issues
   const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
@@ -147,7 +149,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const video = videoRef.current;
     destroyPlayer();
-    setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false }));
+    setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false, showControls: true }));
 
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
@@ -235,7 +237,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             availableQualities: levels,
             currentQuality: hls.currentLevel,
             isMuted: video.muted,
-            isPlaying: true
+            isPlaying: true,
+            showControls: true
           }));
           
           console.log('HLS player initialized successfully');
@@ -374,6 +377,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       player.addEventListener('error', onError);
 
+      // State change handlers for Shaka player
+      const onShakaStateChange = () => {
+        if (!isMountedRef.current || !video) return;
+        setPlayerState(prev => ({
+          ...prev,
+          isPlaying: !video.paused,
+          isMuted: video.muted
+        }));
+      };
+
+      video.addEventListener('play', onShakaStateChange);
+      video.addEventListener('pause', onShakaStateChange);
+      video.addEventListener('volumechange', onShakaStateChange);
+
       // Load the manifest
       await player.load(url);
       
@@ -398,7 +415,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         availableQualities: qualities,
         currentQuality: -1, // -1 for auto
         isMuted: video.muted,
-        isPlaying: true
+        isPlaying: true,
+        showControls: true
       }));
       
       console.log('Shaka player initialized successfully');
@@ -406,6 +424,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       // Cleanup function
       return () => {
         player.removeEventListener('error', onError);
+        video.removeEventListener('play', onShakaStateChange);
+        video.removeEventListener('pause', onShakaStateChange);
+        video.removeEventListener('volumechange', onShakaStateChange);
       };
       
     } catch (error) {
@@ -435,7 +456,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isLoading: false, 
           error: null, 
           isMuted: video.muted,
-          isPlaying: true
+          isPlaying: true,
+          showControls: true
         }));
         console.log('Native player initialized successfully');
       };
@@ -467,7 +489,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // --- UI and Control Logic ---
 
   const formatTime = (time: number): string => {
-    if (!isFinite(time)) return "LIVE";
+    if (!isFinite(time) || time <= 0) return "0:00";
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
@@ -516,23 +538,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
-    const handlePlay = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: true }));
-    const handlePause = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: false }));
-    const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
-    const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
-    const handleTimeUpdate = () => {
-      if (isMountedRef.current && video && !playerState.isSeeking) {
-        const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
-        setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration || 0, buffered: buffered }));
-      }
+    const handlePlay = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPlaying: true }));
+      lastActivityRef.current = Date.now();
     };
-    const handleVolumeChange = () => isMountedRef.current && video && setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
-    const handleEnterPip = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPipActive: true }));
-    const handleLeavePip = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPipActive: false }));
+    
+    const handlePause = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      lastActivityRef.current = Date.now();
+    };
+    
+    const handleWaiting = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isLoading: true }));
+    };
+    
+    const handlePlaying = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isLoading: false, isPlaying: true }));
+      lastActivityRef.current = Date.now();
+    };
+    
+    const handleTimeUpdate = () => {
+      if (!isMountedRef.current || !video || playerState.isSeeking) return;
+      const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+      setPlayerState(prev => ({ 
+        ...prev, 
+        currentTime: video.currentTime, 
+        duration: video.duration || 0, 
+        buffered: buffered 
+      }));
+    };
+    
+    const handleVolumeChange = () => {
+      if (!isMountedRef.current || !video) return;
+      setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
+    };
+    
+    const handleEnterPip = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPipActive: true }));
+    };
+    
+    const handleLeavePip = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPipActive: false }));
+    };
+    
     const handleFullscreenChange = () => {
-      if (isMountedRef.current) {
-        setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
-      }
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
     };
     
     video.addEventListener('play', handlePlay);
@@ -575,17 +632,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video || !isFinite(video.duration) || video.duration <= 0) return;
     wasPlayingBeforeSeekRef.current = !video.paused;
     dragStartRef.current = { isDragging: true };
-    setPlayerState(prev => ({ ...prev, isSeeking: true }));
+    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true }));
     video.pause();
+    lastActivityRef.current = Date.now();
   }, []);
 
   const handleDragMove = useCallback((e: MouseEvent) => {
     if (!dragStartRef.current?.isDragging) return;
     const newTime = calculateNewTime(e.clientX);
     if (newTime !== null) {
-      setPlayerState(prev => ({ ...prev, currentTime: newTime }));
+      setPlayerState(prev => ({ ...prev, currentTime: newTime, showControls: true }));
       seekTimeRef.current = newTime;
     }
+    lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
 
   const handleDragEnd = useCallback(() => {
@@ -598,7 +657,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
     dragStartRef.current = null;
-    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused }));
+    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -606,6 +666,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (newTime !== null && videoRef.current) {
       videoRef.current.currentTime = newTime;
     }
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
   
   const togglePlay = useCallback(() => {
@@ -625,11 +687,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         video.pause();
       }
     }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
-    if (video) video.muted = !video.muted;
+    if (video) {
+      video.muted = !video.muted;
+      setPlayerState(prev => ({ ...prev, showControls: true }));
+      lastActivityRef.current = Date.now();
+    }
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
@@ -640,6 +709,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       await container.requestFullscreen();
     }
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
   
   const togglePip = useCallback(async () => {
@@ -650,26 +721,50 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       await video.requestPictureInPicture();
     }
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
 
   const showControlsTemporarily = useCallback(() => {
     if (!isMountedRef.current) return;
+    
+    // Always show controls when there's user activity
     setPlayerState(prev => ({ ...prev, showControls: true }));
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    lastActivityRef.current = Date.now();
+    
+    // Clear any existing timeout
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    // Set new timeout to hide controls after inactivity
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
-        setPlayerState(prev => ({ ...prev, showControls: false }));
+      if (isMountedRef.current) {
+        // Only hide controls if:
+        // 1. Player is actually playing
+        // 2. No settings menu is open
+        // 3. Not currently seeking
+        // 4. No recent activity (within last 3 seconds)
+        const timeSinceLastActivity = Date.now() - lastActivityRef.current;
+        if (playerState.isPlaying && 
+            !playerState.showSettings && 
+            !playerState.isSeeking && 
+            timeSinceLastActivity > CONTROLS_HIDE_DELAY - 100) {
+          setPlayerState(prev => ({ ...prev, showControls: false }));
+        }
       }
-    }, 3000);
+    }, CONTROLS_HIDE_DELAY);
   }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
 
   const handlePlayerClick = useCallback(() => {
     if (playerState.showSettings) {
-      setPlayerState(prev => ({ ...prev, showSettings: false }));
+      setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
+      lastActivityRef.current = Date.now();
       return;
     }
-    setPlayerState(prev => ({ ...prev, showControls: !prev.showControls }));
-  }, [playerState.showControls, playerState.showSettings]);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, [playerState.showSettings]);
 
   const handleMouseMove = useCallback(() => {
     showControlsTemporarily();
@@ -734,9 +829,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       <div 
         className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${
-          playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'opacity-100' : 'opacity-0'
+          playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
-        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'auto' : 'none' }}
       >
         {/* Settings Menu */}
         {playerState.showSettings && (
@@ -772,10 +866,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Play Button Overlay */}
         {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center">
                 <button
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto"
+                className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all"
                >
                 <Play size={24} fill="white" className="ml-1" />
                 </button>
@@ -783,9 +877,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 p-4">
           {/* Progress Bar */}
-          <div className="mb-4 pointer-events-auto">
+          <div className="mb-4">
             <div 
               ref={progressRef}
               className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" 
@@ -811,7 +905,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
           
           {/* Buttons and Time */}
-          <div className="flex items-center gap-3 pointer-events-auto">
+          <div className="flex items-center gap-3">
             <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-white hover:text-blue-300 transition-colors p-2">
               {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
