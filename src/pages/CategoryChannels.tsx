@@ -25,10 +25,14 @@ const CategoryChannels = () => {
   }, [slug]);
 
   useEffect(() => {
-    const filtered = channels.filter(channel =>
-      channel.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredChannels(filtered);
+    if (channels.length > 0) {
+      const filtered = channels.filter(channel =>
+        channel.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredChannels(filtered);
+    } else {
+      setFilteredChannels([]);
+    }
   }, [searchQuery, channels]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
@@ -126,16 +130,21 @@ const CategoryChannels = () => {
       }
 
       // Also fetch manually added channels from Firestore
-      const channelsRef = collection(db, 'channels');
-      const channelsQuery = query(channelsRef, where('categoryId', '==', categoryData.id));
-      const channelsSnapshot = await getDocs(channelsQuery);
-      
-      const manualChannels = channelsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as PublicChannel[];
+      try {
+        const channelsRef = collection(db, 'channels');
+        const channelsQuery = query(channelsRef, where('categoryId', '==', categoryData.id));
+        const channelsSnapshot = await getDocs(channelsQuery);
+        
+        const manualChannels = channelsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as PublicChannel[];
 
-      allChannels = [...allChannels, ...manualChannels];
+        allChannels = [...allChannels, ...manualChannels];
+      } catch (firestoreError) {
+        console.error('Error fetching manual channels:', firestoreError);
+      }
+
       console.log(`Total channels loaded: ${allChannels.length}`);
       setChannels(allChannels);
 
@@ -228,7 +237,7 @@ const CategoryChannels = () => {
             No channels match "{searchQuery}". Try a different search term.
           </p>
         </div>
-      ) : filteredChannels.length === 0 ? (
+      ) : channels.length === 0 ? (
         <div className="text-center py-12">
           <Tv size={48} className="text-text-secondary mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No Channels Available</h3>
