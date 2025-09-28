@@ -5,7 +5,6 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
 import VideoPlayer from '@/components/VideoPlayer';
-import ChannelCard from '@/components/ChannelCard';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +18,6 @@ const ChannelPlayer = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
   const [channel, setChannel] = useState<PublicChannel | null>(null);
-  const [relatedChannels, setRelatedChannels] = useState<PublicChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
@@ -167,64 +165,11 @@ const ChannelPlayer = () => {
       // Add to recent channels
       addRecent(foundChannel);
 
-      // Fetch related channels from same category
-      await fetchRelatedChannels(foundChannel.categoryId, foundChannel.id);
-
     } catch (error) {
       console.error('Error fetching channel:', error);
       setError('Failed to load channel. Please try again.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchRelatedChannels = async (categoryId: string, currentChannelId: string) => {
-    try {
-      let allChannels: PublicChannel[] = [];
-
-      // Get category info
-      const categoriesRef = collection(db, 'categories');
-      const categoriesSnapshot = await getDocs(categoriesRef);
-      const category = categoriesSnapshot.docs.find(doc => doc.id === categoryId);
-      
-      if (category) {
-        const categoryData = { id: category.id, ...category.data() } as Category;
-        
-        // Fetch M3U channels if available
-        if (categoryData.m3uUrl) {
-          try {
-            const m3uChannels = await fetchM3UPlaylist(
-              categoryData.m3uUrl,
-              categoryData.id,
-              categoryData.name
-            );
-            allChannels = [...allChannels, ...m3uChannels];
-          } catch (error) {
-            console.error('Error fetching M3U channels for related:', error);
-          }
-        }
-
-        // Fetch manual channels
-        const channelsRef = collection(db, 'channels');
-        const channelsQuery = query(channelsRef, where('categoryId', '==', categoryId));
-        const channelsSnapshot = await getDocs(channelsQuery);
-        
-        const manualChannels = channelsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as PublicChannel[];
-
-        allChannels = [...allChannels, ...manualChannels];
-      }
-
-      // Filter out current channel and limit to 8 related channels
-      const related = allChannels
-        .filter(ch => ch.id !== currentChannelId)
-        .slice(0, 8);
-      
-      setRelatedChannels(related);
-    } catch (error) {
-      console.error('Error fetching related channels:', error);
     }
   };
 
@@ -376,7 +321,7 @@ const ChannelPlayer = () => {
         </div>
       </div>
 
-      {/* Video Player - This should now appear */}
+      {/* Video Player */}
       <div className="w-full">
         <VideoPlayer
           streamUrl={channel.streamUrl}
@@ -385,41 +330,6 @@ const ChannelPlayer = () => {
           muted={false}
           className="w-full"
         />
-      </div>
-
-      {/* Related Channels */}
-      {relatedChannels.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold">More from {channel.categoryName}</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {relatedChannels.map(relatedChannel => (
-              <ChannelCard key={relatedChannel.id} channel={relatedChannel} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Channel Details */}
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-4">About this Channel</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-text-secondary">Channel Name:</span>
-            <div className="font-medium">{channel.name}</div>
-          </div>
-          <div>
-            <span className="text-text-secondary">Category:</span>
-            <div className="font-medium">{channel.categoryName}</div>
-          </div>
-          <div>
-            <span className="text-text-secondary">Quality:</span>
-            <div className="font-medium">HD</div>
-          </div>
-          <div>
-            <span className="text-text-secondary">Status:</span>
-            <div className="font-medium text-green-500">Live</div>
-          </div>
-        </div>
       </div>
     </div>
   );
