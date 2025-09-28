@@ -25,7 +25,7 @@ const ChannelPlayer = () => {
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const { addRecent } = useRecents();
 
-    useEffect(() => {
+  useEffect(() => {
     if (channelId) {
       fetchChannel();
     }
@@ -52,8 +52,10 @@ const ChannelPlayer = () => {
           categoryName,
         };
       } else if (line && !line.startsWith('#') && currentChannel.name) {
+        // Create consistent ID format for M3U channels
+        const cleanChannelName = currentChannel.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const channel: PublicChannel = {
-          id: `${categoryId}_${channels.length}_${Date.now()}`,
+          id: `${categoryId}_${cleanChannelName}_${channels.length}`,
           name: currentChannel.name,
           logoUrl: currentChannel.logoUrl || '/placeholder.svg',
           streamUrl: line,
@@ -92,22 +94,30 @@ const ChannelPlayer = () => {
         return;
       }
 
+      console.log('Looking for channel with ID:', channelId);
+
+      // Decode the channel ID in case it's URL encoded
+      const decodedChannelId = decodeURIComponent(channelId);
+      console.log('Decoded channel ID:', decodedChannelId);
+
+      let foundChannel: PublicChannel | null = null;
+      
       // First try to find in manual channels
       const channelsRef = collection(db, 'channels');
       const channelsSnapshot = await getDocs(channelsRef);
       
-      let foundChannel: PublicChannel | null = null;
-      
       // Check manual channels first
       for (const doc of channelsSnapshot.docs) {
-        if (doc.id === channelId) {
+        if (doc.id === decodedChannelId || doc.id === channelId) {
           foundChannel = { id: doc.id, ...doc.data() } as PublicChannel;
+          console.log('Found in manual channels:', foundChannel);
           break;
         }
       }
 
       // If not found in manual channels, search in M3U playlists
       if (!foundChannel) {
+        console.log('Not found in manual channels, searching M3U playlists...');
         const categoriesRef = collection(db, 'categories');
         const categoriesSnapshot = await getDocs(categoriesRef);
         
@@ -115,6 +125,7 @@ const ChannelPlayer = () => {
           const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
           
           if (categoryData.m3uUrl) {
+            console.log(`Checking M3U playlist for category: ${categoryData.name}`);
             try {
               const m3uChannels = await fetchM3UPlaylist(
                 categoryData.m3uUrl,
@@ -122,9 +133,19 @@ const ChannelPlayer = () => {
                 categoryData.name
               );
               
-              const m3uChannel = m3uChannels.find(ch => ch.id === channelId);
+              console.log(`Found ${m3uChannels.length} channels in M3U playlist`);
+              
+              // Try both exact match and partial match for M3U channels
+              const m3uChannel = m3uChannels.find(ch => 
+                ch.id === decodedChannelId || 
+                ch.id === channelId ||
+                ch.id.includes(decodedChannelId) ||
+                ch.id.includes(channelId)
+              );
+              
               if (m3uChannel) {
                 foundChannel = m3uChannel;
+                console.log('Found in M3U playlist:', foundChannel);
                 break;
               }
             } catch (m3uError) {
@@ -135,10 +156,12 @@ const ChannelPlayer = () => {
       }
 
       if (!foundChannel) {
-        setError('Channel not found');
+        console.log('Channel not found anywhere');
+        setError('Channel not found. The channel may have been removed or the link is invalid.');
         return;
       }
 
+      console.log('Setting channel:', foundChannel);
       setChannel(foundChannel);
       
       // Add to recent channels
@@ -279,10 +302,20 @@ const ChannelPlayer = () => {
 
   if (!channel) {
     return (
-      <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>Channel not found.</AlertDescription>
-      </Alert>
+      <div className="space-y-6">
+        <Button 
+          variant="ghost" 
+          onClick={() => navigate(-1)}
+          className="mb-4"
+        >
+          <ArrowLeft size={16} />
+          Go Back
+        </Button>
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>Channel not found.</AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
@@ -295,7 +328,6 @@ const ChannelPlayer = () => {
         <Button 
           variant="ghost" 
           onClick={() => navigate(-1)}
-          className="mb-4"
         >
           <ArrowLeft size={16} />
           Back
@@ -344,7 +376,7 @@ const ChannelPlayer = () => {
         </div>
       </div>
 
-      {/* Video Player */}
+      {/* Video Player - This should now appear */}
       <div className="w-full">
         <VideoPlayer
           streamUrl={channel.streamUrl}
