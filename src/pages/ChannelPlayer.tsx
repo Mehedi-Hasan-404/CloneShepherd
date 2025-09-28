@@ -310,8 +310,10 @@ const ChannelPlayer = () => {
     try {
       if (isFavorite(channel.id)) {
         removeFavorite(channel.id);
+        toast.info(`${channel.name} removed from favorites`);
       } else {
         addFavorite(channel);
+        toast.success(`${channel.name} added to favorites!`);
       }
     } catch (error) {
       addDebug(`Error toggling favorite: ${error}`);
@@ -355,7 +357,7 @@ const ChannelPlayer = () => {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4">
         {showDebugInfo && (
           <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-40 overflow-y-auto">
             <strong>DEBUG INFO:</strong><br />
@@ -365,10 +367,10 @@ const ChannelPlayer = () => {
           </div>
         )}
         <div className="flex items-center gap-4">
-          <Skeleton className="h-10 w-10 rounded-full" />
+          <Skeleton className="h-16 w-16 rounded-lg" />
           <div className="space-y-2">
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-6 w-64" />
+            <Skeleton className="h-4 w-48" />
           </div>
         </div>
         <Skeleton className="aspect-video w-full" />
@@ -382,7 +384,7 @@ const ChannelPlayer = () => {
 
   if (error) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4">
         {showDebugInfo && (
           <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-60 overflow-y-auto">
             <strong>DEBUG INFO:</strong><br />
@@ -396,7 +398,7 @@ const ChannelPlayer = () => {
           onClick={() => navigate(-1)}
           className="mb-4"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16} className="mr-2" />
           Go Back
         </Button>
         <Alert variant="destructive">
@@ -409,7 +411,7 @@ const ChannelPlayer = () => {
 
   if (!channel) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4">
         {showDebugInfo && (
           <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-60 overflow-y-auto">
             <strong>DEBUG INFO:</strong><br />
@@ -423,7 +425,7 @@ const ChannelPlayer = () => {
           onClick={() => navigate(-1)}
           className="mb-4"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16} className="mr-2" />
           Go Back
         </Button>
         <Alert>
@@ -437,7 +439,7 @@ const ChannelPlayer = () => {
   const isChannelFavorite = isFavorite(channel.id);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       {showDebugInfo && (
         <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-40 overflow-y-auto">
           <strong>DEBUG INFO:</strong><br />
@@ -450,7 +452,7 @@ const ChannelPlayer = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" onClick={() => navigate(-1)}>
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16} className="mr-2" />
           Back
         </Button>
         <div className="flex gap-2">
@@ -460,11 +462,11 @@ const ChannelPlayer = () => {
             onClick={handleFavoriteToggle}
             className={isChannelFavorite ? 'text-yellow-500' : ''}
           >
-            <Star size={16} fill={isChannelFavorite ? 'currentColor' : 'none'} />
+            <Star size={16} fill={isChannelFavorite ? 'currentColor' : 'none'} className="mr-1" />
             {isChannelFavorite ? 'Favorited' : 'Add to Favorites'}
           </Button>
           <Button variant="outline" size="sm" onClick={handleShare}>
-            <Share2 size={16} />
+            <Share2 size={16} className="mr-1" />
             Share
           </Button>
         </div>
@@ -475,30 +477,77 @@ const ChannelPlayer = () => {
         <img
           src={channel.logoUrl || '/placeholder.svg'}
           alt={channel.name}
-          className="w-16 h-16 object-contain bg-white rounded-lg"
+          className="w-16 h-16 object-contain p-1 bg-white dark:bg-gray-800 rounded-lg shadow"
           onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
         />
         <div>
           <h1 className="text-2xl font-bold">{channel.name}</h1>
           <div className="flex items-center gap-2 mt-1">
-            <Badge variant="outline">{channel.categoryName}</Badge>
+            <Badge variant="secondary">{channel.categoryName}</Badge>
             <Badge variant="destructive" className="animate-pulse">LIVE</Badge>
           </div>
         </div>
       </div>
 
       {/* Video Player */}
-      <div className="w-full">
+      <div className="w-full aspect-video bg-black rounded-lg overflow-hidden shadow-2xl">
         <VideoPlayer
+          // 👇 CRITICAL FIX: The 'key' forces React to destroy and rebuild the component 
+          // when channel.id changes, preventing HLS instance conflicts.
+          key={channel.id} 
           streamUrl={channel.streamUrl}
           channelName={channel.name}
           autoPlay={true}
           muted={false}
-          className="w-full"
+          className="w-full h-full"
         />
       </div>
 
-      {/* Rest of the component... */}
+      {/* Rest of the component: Related Channels */}
+      <div className="related-channels-section pt-4">
+        <h2 className="text-xl font-semibold mb-4 border-b pb-2">
+          More Channels
+          {channel.categoryName && <span className="text-base text-text-secondary font-normal ml-2">in {channel.categoryName}</span>}
+        </h2>
+        
+        <div className="mb-4 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
+          <input
+            type="search"
+            placeholder="Search related channels..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border rounded-lg bg-card text-card-foreground focus:ring-2 focus:ring-accent focus:border-accent shadow-inner"
+          />
+        </div>
+
+        {filteredChannels.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {filteredChannels.map(ch => (
+              <div 
+                key={ch.id} 
+                className="channel-card cursor-pointer p-3 border rounded-lg hover:border-accent transition-colors bg-card shadow-sm"
+                onClick={() => handleChannelSelect(ch)}
+              >
+                <img
+                  src={ch.logoUrl || '/placeholder.svg'}
+                  alt={ch.name}
+                  className="w-full h-12 sm:h-16 object-contain mb-2 p-1"
+                />
+                <p className="text-sm font-medium truncate text-center">{ch.name}</p>
+                <Badge className="mt-2 flex w-fit mx-auto items-center gap-1 text-xs" variant="default">
+                  <Play size={12} />
+                  Watch
+                </Badge>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-text-secondary">
+            <p>No other channels found matching your search.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
