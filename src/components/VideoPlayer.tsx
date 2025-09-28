@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - Fixed Version
+// /src/components/VideoPlayer.tsx - Final Fixed Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
 
@@ -16,7 +16,7 @@ interface QualityLevel {
   id: number; 
 }
 
-const PLAYER_LOAD_TIMEOUT = 30000; // 30 seconds
+const PLAYER_LOAD_TIMEOUT = 20000; // 20 seconds for faster loading
 const CONTROLS_HIDE_DELAY = 3000; // 3 seconds
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -40,7 +40,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const progressRef = useRef<HTMLDivElement>(null);
   const lastActivityRef = useRef<number>(Date.now());
 
-  // Refs for robust seeking logic to prevent stale state issues
+  // Refs for robust seeking logic
   const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
@@ -201,14 +201,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({ 
-          enableWorker: false,
-          debug: true,
+          enableWorker: true,
+          debug: false,
           capLevelToPlayerSize: true,
-          maxLoadingDelay: 4,
-          maxBufferLength: 30,
-          maxBufferSize: 60 * 1000 * 1000,
-          fragLoadingTimeOut: 20000,
-          manifestLoadingTimeOut: 10000
+          maxLoadingDelay: 2,
+          maxBufferLength: 20,
+          maxBufferSize: 30 * 1000 * 1000,
+          fragLoadingTimeOut: 10000,
+          manifestLoadingTimeOut: 5000,
+          startLevel: -1, // Auto start level
+          startPosition: -1, // Start from beginning
         });
         hlsRef.current = hls;
 
@@ -242,6 +244,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }));
           
           console.log('HLS player initialized successfully');
+          
+          // Start controls auto-hide timer
+          startControlsTimer();
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -251,7 +256,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (data.fatal) {
             if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
             
-            // Try to recover from fatal errors
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 console.log('Network error, trying to recover...');
@@ -274,7 +278,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
 
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari)
         console.log('Using native HLS support');
         initNativePlayer(url, video);
       } else {
@@ -308,28 +311,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
       
-      // Configure player
+      // Configure player for faster loading
       player.configure({
         streaming: {
-          bufferingGoal: 30,
-          rebufferingGoal: 15,
-          bufferBehind: 30,
+          bufferingGoal: 20,
+          rebufferingGoal: 10,
+          bufferBehind: 20,
           retryParameters: {
-            timeout: 10000,
-            maxAttempts: 4,
-            baseDelay: 1000,
-            backoffFactor: 2,
-            fuzzFactor: 0.5
-          }
+            timeout: 5000,
+            maxAttempts: 2,
+            baseDelay: 500,
+            backoffFactor: 1.5,
+            fuzzFactor: 0.3
+          },
+          useNativeHlsOnSafari: true,
         },
         manifest: {
           retryParameters: {
-            timeout: 10000,
-            maxAttempts: 4,
-            baseDelay: 1000,
-            backoffFactor: 2,
-            fuzzFactor: 0.5
+            timeout: 5000,
+            maxAttempts: 2,
+            baseDelay: 500,
+            backoffFactor: 1.5,
+            fuzzFactor: 0.3
+          },
+          dash: {
+            clockSyncUri: ''
           }
+        },
+       abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 1000000,
+          bandwidthUpgradeSeconds: 4,
+          bandwidthDowngradeSeconds: 8,
         }
       });
 
@@ -358,7 +371,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const errorCode = event.detail.code;
         let errorMessage = `Stream error (${errorCode})`;
         
-        // Provide more user-friendly error messages
         if (errorCode >= 6000 && errorCode < 7000) {
           errorMessage = 'Network error - please check your connection';
         } else if (errorCode >= 4000 && errorCode < 5000) {
@@ -421,6 +433,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       
       console.log('Shaka player initialized successfully');
       
+      // Start controls auto-hide timer
+      startControlsTimer();
+      
       // Cleanup function
       return () => {
         player.removeEventListener('error', onError);
@@ -438,52 +453,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const initNativePlayer = (url: string, video: HTMLVideoElement) => {
     console.log('Initializing native player with URL:', url);
     
-    // Check if the browser can play the content type
-    const canPlay = video.canPlayType('application/vnd.apple.mpegurl') ||
-                    video.canPlayType('video/mp4') ||
-                    video.canPlayType('video/webm');
+    video.src = url;
     
-    if (canPlay) {
-      video.src = url;
+    const onLoadedMetadata = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      video.muted = muted;
+      if (autoPlay) video.play().catch(console.warn);
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: null, 
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+      console.log('Native player initialized successfully');
       
-      const onLoadedMetadata = () => {
-        if (!isMountedRef.current) return;
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        video.muted = muted;
-        if (autoPlay) video.play().catch(console.warn);
-        setPlayerState(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          error: null, 
-          isMuted: video.muted,
-          isPlaying: true,
-          showControls: true
-        }));
-        console.log('Native player initialized successfully');
-      };
-      
-      const onError = () => {
-        if (!isMountedRef.current) return;
-        console.error('Native player error');
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        setPlayerState(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          error: 'Failed to load stream with native player' 
-        }));
-      };
-      
-      video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
-      video.addEventListener('error', onError, { once: true });
-      
-      // Cleanup function
-      return () => {
-        video.removeEventListener('loadedmetadata', onLoadedMetadata);
-        video.removeEventListener('error', onError);
-      };
-    } else {
-      throw new Error('Media format not supported by this browser');
-    }
+      // Start controls auto-hide timer
+      startControlsTimer();
+    };
+    
+    const onError = () => {
+      if (!isMountedRef.current) return;
+      console.error('Native player error');
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Failed to load stream with native player' 
+      }));
+    };
+    
+    video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+    video.addEventListener('error', onError, { once: true });
+    
+    // Cleanup function
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('error', onError);
+    };
   };
 
   // --- UI and Control Logic ---
@@ -514,13 +523,45 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
-    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false }));
+    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
 
   const handleRetry = useCallback(() => {
     console.log('Retrying stream initialization');
     initializePlayer();
   }, [initializePlayer]);
+
+  // --- Controls Timer Logic ---
+
+  const startControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && playerState.isPlaying) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+      }
+    }, CONTROLS_HIDE_DELAY);
+  }, [playerState.isPlaying]);
+
+  const resetControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+    
+    if (playerState.isPlaying) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          setPlayerState(prev => ({ ...prev, showControls: false }));
+        }
+      }, CONTROLS_HIDE_DELAY);
+    }
+  }, [playerState.isPlaying]);
 
   // --- Effects and Event Listeners ---
   
@@ -589,7 +630,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     
     const handleFullscreenChange = () => {
       if (!isMountedRef.current) return;
-      setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
+      const isFullscreen = !!document.fullscreenElement;
+      setPlayerState(prev => ({ ...prev, isFullscreen }));
+      
+      // Reset controls visibility on fullscreen change
+      if (isFullscreen) {
+        resetControlsTimer();
+      }
     };
     
     video.addEventListener('play', handlePlay);
@@ -613,9 +660,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('leavepictureinpicture', handleLeavePip);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [playerState.isSeeking]);
+  }, [playerState.isSeeking, resetControlsTimer]);
 
-  // --- Seeking logic, controls visibility, etc. ---
+  // --- Seeking logic ---
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
@@ -704,11 +751,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-    } else {
-      await container.requestFullscreen();
+    
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await container.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn('Fullscreen error:', error);
+      // Fallback to landscape orientation for mobile
+      if ('screen' in window && 'orientation' in window.screen) {
+        try {
+          // @ts-ignore
+          if (window.screen.orientation.lock) {
+            // @ts-ignore
+            window.screen.orientation.lock('landscape').catch(console.warn);
+          }
+        } catch (e) {
+          console.warn('Orientation lock not supported');
+        }
+      }
     }
+    
     setPlayerState(prev => ({ ...prev, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
@@ -725,50 +790,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
-  const showControlsTemporarily = useCallback(() => {
-    if (!isMountedRef.current) return;
-    
-    // Always show controls when there's user activity
-    setPlayerState(prev => ({ ...prev, showControls: true }));
-    lastActivityRef.current = Date.now();
-    
-    // Clear any existing timeout
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    
-    // Set new timeout to hide controls after inactivity
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current) {
-        // Only hide controls if:
-        // 1. Player is actually playing
-        // 2. No settings menu is open
-        // 3. Not currently seeking
-        // 4. No recent activity (within last 3 seconds)
-        const timeSinceLastActivity = Date.now() - lastActivityRef.current;
-        if (playerState.isPlaying && 
-            !playerState.showSettings && 
-            !playerState.isSeeking && 
-            timeSinceLastActivity > CONTROLS_HIDE_DELAY - 100) {
-          setPlayerState(prev => ({ ...prev, showControls: false }));
-        }
-      }
-    }, CONTROLS_HIDE_DELAY);
-  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
-
   const handlePlayerClick = useCallback(() => {
     if (playerState.showSettings) {
       setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
       lastActivityRef.current = Date.now();
       return;
     }
-    setPlayerState(prev => ({ ...prev, showControls: true }));
+    
+    // Toggle controls visibility on click
+    setPlayerState(prev => ({ ...prev, showControls: !prev.showControls }));
     lastActivityRef.current = Date.now();
-  }, [playerState.showSettings]);
+    
+    // If showing controls, start timer to hide them
+    if (!playerState.showControls) {
+      startControlsTimer();
+    }
+  }, [playerState.showSettings, playerState.showControls, startControlsTimer]);
 
   const handleMouseMove = useCallback(() => {
-    showControlsTemporarily();
-  }, [showControlsTemporarily]);
+    resetControlsTimer();
+  }, [resetControlsTimer]);
 
   useEffect(() => {
     document.addEventListener('mousemove', handleDragMove);
@@ -783,14 +824,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   if (playerState.error && !playerState.isLoading) {
     return (
-      <div className={`aspect-video bg-black flex items-center justify-center ${className}`}>
+      <div className={`w-full h-full bg-black flex items-center justify-center ${className}`}>
         <div className="text-center text-white p-6">
           <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-400" />
           <div className="text-lg font-medium mb-2">Stream Error</div>
           <div className="text-sm text-gray-300 mb-4">{playerState.error}</div>
           <button
             onClick={handleRetry}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors"
           >
             <RotateCcw size={14} />
             Retry
@@ -807,7 +848,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div 
       ref={containerRef}
-      className={`relative bg-black ${playerState.isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'} ${className}`}
+      className={`relative bg-black w-full h-full ${className}`}
       onMouseMove={handleMouseMove}
       onClick={handlePlayerClick}
     >
