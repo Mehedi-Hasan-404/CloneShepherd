@@ -27,9 +27,13 @@ const ChannelPlayer = () => {
   const { addRecent } = useRecents();
 
   useEffect(() => {
+    console.log('ChannelPlayer mounted with channelId:', channelId);
     if (channelId) {
       fetchChannel();
       fetchAllChannels();
+    } else {
+      setError('No channel ID provided');
+      setLoading(false);
     }
   }, [channelId]);
 
@@ -51,6 +55,7 @@ const ChannelPlayer = () => {
   }, [searchQuery, allChannels, channel]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
+    console.log('Parsing M3U content for category:', categoryName);
     const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
     const channels: PublicChannel[] = [];
     let currentChannel: Partial<PublicChannel> = {};
@@ -86,14 +91,16 @@ const ChannelPlayer = () => {
       }
     }
 
+    console.log(`Parsed ${channels.length} channels from M3U`);
     return channels;
   };
 
   const fetchM3UPlaylist = async (m3uUrl: string, categoryId: string, categoryName: string): Promise<PublicChannel[]> => {
     try {
+      console.log('Fetching M3U playlist:', m3uUrl);
       const response = await fetch(m3uUrl);
       if (!response.ok) {
-        throw new Error(`Failed to fetch M3U playlist: ${response.statusText}`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       const m3uContent = await response.text();
       return parseM3U(m3uContent, categoryId, categoryName);
@@ -104,6 +111,7 @@ const ChannelPlayer = () => {
   };
 
   const fetchAllChannels = async () => {
+    console.log('Fetching all channels...');
     try {
       // Fetch all categories and their channels
       const categoriesRef = collection(db, 'categories');
@@ -111,7 +119,7 @@ const ChannelPlayer = () => {
       
       let allChannelsList: PublicChannel[] = [];
 
-      // Get manual channels
+      // Get manual channels first
       try {
         const channelsRef = collection(db, 'channels');
         const channelsSnapshot = await getDocs(channelsRef);
@@ -120,6 +128,7 @@ const ChannelPlayer = () => {
           ...doc.data()
         })) as PublicChannel[];
         allChannelsList = [...allChannelsList, ...manualChannels];
+        console.log(`Found ${manualChannels.length} manual channels`);
       } catch (manualChannelsError) {
         console.error('Error fetching manual channels:', manualChannelsError);
       }
@@ -137,6 +146,7 @@ const ChannelPlayer = () => {
             );
             if (m3uChannels.length > 0) {
               allChannelsList = [...allChannelsList, ...m3uChannels];
+              console.log(`Added ${m3uChannels.length} M3U channels from ${categoryData.name}`);
             }
           } catch (m3uError) {
             console.error('Error loading M3U playlist for category:', categoryData.name, m3uError);
@@ -144,6 +154,7 @@ const ChannelPlayer = () => {
         }
       }
 
+      console.log(`Total channels loaded: ${allChannelsList.length}`);
       setAllChannels(allChannelsList);
     } catch (error) {
       console.error('Error fetching all channels:', error);
@@ -151,6 +162,7 @@ const ChannelPlayer = () => {
   };
 
   const fetchChannel = async () => {
+    console.log('Starting fetchChannel for channelId:', channelId);
     try {
       setLoading(true);
       setError(null);
@@ -160,8 +172,6 @@ const ChannelPlayer = () => {
         return;
       }
 
-      console.log('Looking for channel with ID:', channelId);
-
       // Decode the channel ID in case it's URL encoded
       const decodedChannelId = decodeURIComponent(channelId);
       console.log('Decoded channel ID:', decodedChannelId);
@@ -170,13 +180,23 @@ const ChannelPlayer = () => {
       
       // First try to find in manual channels
       try {
+        console.log('Searching manual channels...');
         const channelsRef = collection(db, 'channels');
         const channelsSnapshot = await getDocs(channelsRef);
         
-        // Check manual channels first
         for (const doc of channelsSnapshot.docs) {
           if (doc.id === decodedChannelId || doc.id === channelId) {
-            foundChannel = { id: doc.id, ...doc.data() } as PublicChannel;
+            const channelData = doc.data() as Omit<PublicChannel, 'id'>;
+            foundChannel = { 
+              id: doc.id, 
+              ...channelData,
+              // Ensure all required fields are present
+              name: channelData.name || 'Unknown Channel',
+              logoUrl: channelData.logoUrl || '/placeholder.svg',
+              streamUrl: channelData.streamUrl || '',
+              categoryId: channelData.categoryId || '',
+              categoryName: channelData.categoryName || 'Unknown Category'
+            } as PublicChannel;
             console.log('Found in manual channels:', foundChannel);
             break;
           }
@@ -215,7 +235,15 @@ const ChannelPlayer = () => {
                 );
                 
                 if (m3uChannel) {
-                  foundChannel = m3uChannel;
+                  foundChannel = {
+                    ...m3uChannel,
+                    // Ensure all required fields are present
+                    name: m3uChannel.name || 'Unknown Channel',
+                    logoUrl: m3uChannel.logoUrl || '/placeholder.svg',
+                    streamUrl: m3uChannel.streamUrl || '',
+                    categoryId: m3uChannel.categoryId || categoryData.id,
+                    categoryName: m3uChannel.categoryName || categoryData.name
+                  };
                   console.log('Found in M3U playlist:', foundChannel);
                   break;
                 }
@@ -232,6 +260,13 @@ const ChannelPlayer = () => {
       if (!foundChannel) {
         console.log('Channel not found anywhere');
         setError('Channel not found. The channel may have been removed or the link is invalid.');
+        return;
+      }
+
+      // Validate that the channel has required fields
+      if (!foundChannel.streamUrl) {
+        console.error('Channel found but missing stream URL:', foundChannel);
+        setError('Channel stream URL is missing or invalid.');
         return;
       }
 
@@ -292,9 +327,12 @@ const ChannelPlayer = () => {
 
   const handleChannelSelect = (selectedChannel: PublicChannel) => {
     if (selectedChannel && selectedChannel.id) {
+      console.log('Navigating to channel:', selectedChannel.id);
       navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
     }
   };
+
+  console.log('Render state:', { loading, error, channel, channelId });
 
   if (loading) {
     return (
