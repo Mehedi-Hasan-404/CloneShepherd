@@ -1,6 +1,6 @@
-// /src/components/VideoPlayer.tsx - Enhanced Version
+// /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, Fullscreen } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings } from 'lucide-react';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -32,6 +32,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const progressRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ isDragging: boolean; clickX: number } | null>(null); // NEW: Ref for drag state
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -46,8 +47,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showSettings: false,
     currentQuality: -1, // -1 for auto
     availableQualities: [] as QualityLevel[],
-    isDraggingSeek: false,
-    seekPosition: 0,
+    isSeeking: false, // NEW: State to track if the user is dragging the seek handle
   });
 
   const destroyHLS = useCallback(() => {
@@ -254,14 +254,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
     const handleTimeUpdate = () => {
-      if (isMountedRef.current && video && !playerState.isDraggingSeek) {
-        const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
-        setPlayerState(prev => ({ 
-          ...prev, 
-          currentTime: video.currentTime,
-          duration: video.duration,
-          buffered: buffered
-        }));
+      if (isMountedRef.current && video) {
+        // Only update currentTime if not actively seeking/dragging
+        if (!dragStartRef.current?.isDragging) {
+          const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+          setPlayerState(prev => ({ 
+            ...prev, 
+            currentTime: video.currentTime,
+            duration: video.duration,
+            buffered: buffered
+          }));
+        }
       }
     };
     const handleVolumeChange = () => {
@@ -283,6 +286,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('volumechange', handleVolumeChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    
+    // NEW: Drag Move/End listeners
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
 
     return () => {
       video.removeEventListener('play', handlePlay);
@@ -292,8 +299,85 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('volumechange', handleVolumeChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      
+      // NEW: Cleanup Drag listeners
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
     };
-  }, [playerState.isDraggingSeek]);
+  }, []); // Dependencies are now correct: drag handlers are defined outside
+
+  // --- NEW SEEK/DRAG LOGIC ---
+
+  const calculateNewTime = useCallback((clientX: number): number | null => {
+    const video = videoRef.current;
+    const progressBar = progressRef.current;
+    if (!video || !progressBar || !isFinite(video.duration)) return null;
+
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); // Clamp clickX within bounds
+    const percentage = clickX / rect.width;
+    return percentage * video.duration;
+  }, []);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const video = videoRef.current;
+    if (!video || !isFinite(video.duration)) return;
+
+    dragStartRef.current = {
+      isDragging: true,
+      clickX: e.clientX,
+    };
+    setPlayerState(prev => ({ ...prev, isSeeking: true, isPlaying: false }));
+    video.pause();
+  }, []);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current?.isDragging) return;
+
+    const newTime = calculateNewTime(e.clientX);
+    if (newTime !== null) {
+      // Update currentTime state visually, but don't set video.currentTime yet
+      setPlayerState(prev => ({ ...prev, currentTime: newTime }));
+    }
+  }, [calculateNewTime]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!dragStartRef.current?.isDragging) return;
+
+    const video = videoRef.current;
+    if (video) {
+      // Final update to video element's currentTime
+      video.currentTime = playerState.currentTime;
+      
+      // If the player was playing before the drag started, resume play
+      if (!video.paused) {
+        video.play().catch(console.error);
+      }
+    }
+
+    // Reset drag state
+    dragStartRef.current = null;
+    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused }));
+  }, [playerState.currentTime]);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Prevent seeking via click immediately after a drag operation
+    if (dragStartRef.current?.isDragging) {
+      dragStartRef.current = null; // Clear the ref just in case
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    const newTime = calculateNewTime(e.clientX);
+    if (newTime !== null) {
+      video.currentTime = newTime;
+    }
+  }, [calculateNewTime]);
+
+  // --- END NEW SEEK/DRAG LOGIC ---
   
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -319,20 +403,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
-        // Exit landscape mode
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
       } else {
         await container.requestFullscreen();
-        // Force landscape mode
-        if (screen.orientation && screen.orientation.lock) {
-          try {
-            await screen.orientation.lock('landscape');
-          } catch (orientationError) {
-            console.warn('Could not lock to landscape:', orientationError);
-          }
-        }
       }
     } catch (err) {
       console.error('Fullscreen error:', err);
@@ -359,11 +431,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, 3000);
-  }, [playerState.isPlaying, playerState.showSettings]);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
 
   const handlePlayerClick = useCallback(() => {
     // Close settings menu if open
@@ -384,61 +456,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.showControls, playerState.showSettings, showControlsTemporarily]);
 
-  // Enhanced seek bar functionality with dragging
-  const handleSeekStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const video = videoRef.current;
-    const progressBar = progressRef.current;
-    if (!video || !progressBar || !isFinite(video.duration)) return;
-
-    setPlayerState(prev => ({ ...prev, isDraggingSeek: true }));
-
-    const handleSeekMove = (moveEvent: MouseEvent) => {
-      const rect = progressBar.getBoundingClientRect();
-      const clickX = Math.max(0, Math.min(moveEvent.clientX - rect.left, rect.width));
-      const percentage = clickX / rect.width;
-      const newTime = percentage * video.duration;
-      
-      setPlayerState(prev => ({ ...prev, seekPosition: newTime }));
-    };
-
-    const handleSeekEnd = (endEvent: MouseEvent) => {
-      const rect = progressBar.getBoundingClientRect();
-      const clickX = Math.max(0, Math.min(endEvent.clientX - rect.left, rect.width));
-      const percentage = clickX / rect.width;
-      const newTime = percentage * video.duration;
-      
-      video.currentTime = newTime;
-      setPlayerState(prev => ({ 
-        ...prev, 
-        isDraggingSeek: false,
-        currentTime: newTime,
-        seekPosition: 0
-      }));
-
-      document.removeEventListener('mousemove', handleSeekMove);
-      document.removeEventListener('mouseup', handleSeekEnd);
-    };
-
-    // Initial click position
-    const rect = progressBar.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const percentage = clickX / rect.width;
-    const newTime = percentage * video.duration;
-    setPlayerState(prev => ({ ...prev, seekPosition: newTime }));
-
-    document.addEventListener('mousemove', handleSeekMove);
-    document.addEventListener('mouseup', handleSeekEnd);
-  }, []);
-
   const handleMouseMove = useCallback(() => {
     showControlsTemporarily();
   }, [showControlsTemporarily]);
 
   const handleMouseLeave = useCallback(() => {
-    if (playerState.isPlaying && !playerState.showSettings) {
+    if (playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
       setPlayerState(prev => ({ ...prev, showControls: false }));
     }
-  }, [playerState.isPlaying, playerState.showSettings]);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
 
   // Error state
   if (playerState.error && !playerState.isLoading) {
@@ -459,6 +485,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
     );
   }
+
+  // Calculate the current time percentage for the progress bar
+  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 
+    ? (playerState.currentTime / playerState.duration) * 100 
+    : 0;
 
   return (
     <div 
@@ -487,39 +518,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Controls Overlay */}
       <div 
         className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${
-          playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
+          playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'opacity-100' : 'opacity-0' // Show controls when seeking
         }`}
-        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
+        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying || playerState.isSeeking ? 'auto' : 'none' }}
       >
-        {/* Settings Menu - Enlarged and Scrollable */}
+        {/* Settings Menu */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/95 border border-gray-600 min-w-64 max-w-80 max-h-80 overflow-y-auto">
-            <div className="text-white text-sm font-medium mb-2 px-4 py-3 border-b border-gray-600 sticky top-0 bg-black/95">
-              Quality Settings
-            </div>
-            <div className="p-2 space-y-1">
+          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48">
+            <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
+            <div className="space-y-1">
               <button
                 onClick={() => changeQuality(-1)}
-                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
                   playerState.currentQuality === -1 
                     ? 'bg-blue-600 text-white' 
                     : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
-                Auto (Adaptive)
+                Auto
               </button>
               {playerState.availableQualities.map((quality) => (
                 <button
                   key={quality.index}
                   onClick={() => changeQuality(quality.index)}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                  className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
                     playerState.currentQuality === quality.index 
                       ? 'bg-blue-600 text-white' 
                       : 'text-gray-300 hover:bg-gray-700'
                   }`}
                 >
-                  {quality.height > 0 ? `${quality.height}p` : 'Audio Only'} 
-                  {quality.bitrate > 0 && ` (${quality.bitrate} kbps)`}
+                  {quality.height}p ({quality.bitrate} kbps)
                 </button>
               ))}
             </div>
@@ -542,96 +570,94 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
-          {/* Minimalist Progress Bar at Bottom */}
-          <div className="mb-0 pointer-events-auto">
+        <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+          {/* Progress Bar */}
+          <div className="mb-4 pointer-events-auto">
             <div 
               ref={progressRef}
-              className="relative h-2 bg-white bg-opacity-20 cursor-pointer group hover:h-3 transition-all duration-200"
-              onMouseDown={handleSeekStart}
+              // NEW: Increased height and padding for easier interaction
+              className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" 
+              onClick={handleProgressClick}
             >
-              {/* Buffered Progress */}
-              <div 
-                className="absolute top-0 left-0 h-full bg-white bg-opacity-40 transition-all duration-200"
-                style={{ 
-                  width: isFinite(playerState.duration) && playerState.duration > 0 
-                    ? `${(playerState.buffered / playerState.duration) * 100}%` 
-                    : '0%' 
-                }}
-              />
-              {/* Current Progress */}
-              <div 
-                className="absolute top-0 left-0 h-full bg-red-500 transition-all duration-200"
-                style={{ 
-                  width: isFinite(playerState.duration) && playerState.duration > 0 
-                    ? `${((playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime) / playerState.duration) * 100}%` 
-                    : '0%' 
-                }}
-              />
-              {/* Seek Ball */}
-              <div 
-                className="absolute top-1/2 transform -translate-y-1/2 w-4 h-4 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-lg"
-                style={{ 
-                  left: isFinite(playerState.duration) && playerState.duration > 0 
-                    ? `${((playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime) / playerState.duration) * 100}%` 
-                    : '0%',
-                  marginLeft: '-8px'
-                }}
-              />
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white bg-opacity-30 rounded-full">
+                {/* Buffered Progress */}
+                <div 
+                  className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
+                  style={{ 
+                    width: isFinite(playerState.duration) && playerState.duration > 0 
+                      ? `${(playerState.buffered / playerState.duration) * 100}%` 
+                      : '0%' 
+                  }}
+                />
+                {/* Current Progress */}
+                <div 
+                  className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
+                  style={{ 
+                    width: `${currentTimePercentage}%`
+                  }}
+                />
+                
+                {/* NEW: Seek Handle */}
+                <div 
+                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-red-500 transition-all duration-150 ease-out 
+                    ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`}
+                  style={{ left: `${currentTimePercentage}%` }}
+                  onMouseDown={(e) => { e.stopPropagation(); handleDragStart(e); }}
+                  onClick={(e) => e.stopPropagation()} // Prevent handle click from triggering handleProgressClick
+                />
+              </div>
             </div>
           </div>
 
           {/* Control Buttons */}
-          <div className="flex items-center justify-between p-4 pointer-events-auto bg-gradient-to-t from-black/80 to-transparent">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                className="text-white hover:text-blue-300 transition-colors p-2"
-              >
-                {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
-              </button>
-              
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-                className="text-white hover:text-blue-300 transition-colors p-2"
-              >
-                {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-              </button>
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <button
+              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+            >
+              {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+            >
+              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
 
-              {/* Time Display - Only for non-live streams */}
-              {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className="text-white text-sm">
-                  {formatTime(playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime)} / {formatTime(playerState.duration)}
-                </div>
-              )}
-            </div>
+            {/* Time Display - Only for non-live streams */}
+            {isFinite(playerState.duration) && playerState.duration > 0 && (
+              <div className="text-white text-sm">
+                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+              </div>
+            )}
 
-            <div className="flex items-center gap-3">
-              {/* Settings - Only show if there are quality options */}
-              {playerState.availableQualities.length > 0 && (
-                <button
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
-                  }}
-                  className={`text-white hover:text-blue-300 transition-colors p-2 ${
-                    playerState.showSettings ? 'text-blue-400' : ''
-                  }`}
-                  title="Quality Settings"
-                >
-                  <Settings size={18} />
-                </button>
-              )}
+            <div className="flex-1"></div>
 
-              {/* Fullscreen with Picture-in-Picture functionality */}
+            {/* Settings - Only show if there are quality options */}
+            {playerState.availableQualities.length > 0 && (
               <button
-                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                title="Fullscreen (Landscape)"
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
+                }}
+                className={`text-white hover:text-blue-300 transition-colors p-2 ${
+                  playerState.showSettings ? 'text-blue-400' : ''
+                }`}
+                title="Settings"
               >
-                {playerState.isFullscreen ? <Minimize size={18} /> : <Fullscreen size={18} />}
+                <Settings size={18} />
               </button>
-            </div>
+            )}
+
+            {/* Fullscreen */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+              title="Fullscreen"
+            >
+              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
           </div>
         </div>
       </div>
@@ -639,16 +665,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
 };
 
-// Extend window interface for HLS.js and Screen Orientation
+// Extend window interface for HLS.js
 declare global {
   interface Window {
     Hls: any;
-  }
-  interface Screen {
-    orientation?: {
-      lock: (orientation: string) => Promise<void>;
-      unlock: () => void;
-    };
   }
 }
 
