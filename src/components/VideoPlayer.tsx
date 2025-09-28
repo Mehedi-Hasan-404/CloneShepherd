@@ -10,13 +10,12 @@ interface VideoPlayerProps {
   className?: string;
 }
 
-// ... (Other interfaces and constants remain the same)
 interface QualityLevel {
   height: number;
   bitrate: number;
   index: number;
 }
- 
+
 const PLAYER_LOAD_TIMEOUT = 30000; // 30 seconds
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -61,7 +60,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
     }
-  }, []); // Dependencies are stable (empty array)
+  }, []);
 
   const loadHLS = useCallback(() => {
     return new Promise<void>((resolve, reject) => {
@@ -69,14 +68,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         resolve();
         return;
       }
-      // ... (Rest of loadHLS implementation)
+
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
       script.onload = () => resolve();
       script.onerror = () => reject(new Error('Failed to load HLS.js'));
       document.head.appendChild(script);
     });
-  }, []); // Dependencies are stable (empty array)
+  }, []);
 
   const formatTime = (time: number): string => {
     if (!isFinite(time)) return "LIVE";
@@ -97,9 +96,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     const video = videoRef.current;
-    
-    // NOTE: destroyHLS() is called here and again in the main useEffect for guaranteed cleanup.
-    destroyHLS(); 
+    destroyHLS();
 
     setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false }));
 
@@ -120,7 +117,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       await loadHLS();
       const Hls = window.Hls;
 
-      // ... (HLS and Native player initialization logic - UNCHANGED from previous fix) ...
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({
           maxBufferLength: 30,
@@ -139,13 +135,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           
+          // Get available quality levels
           const levels = hls.levels.map((level: any, index: number) => ({
             height: level.height || 0,
-            bitrate: Math.round(level.bitrate / 1000), 
+            bitrate: Math.round(level.bitrate / 1000), // Convert to kbps
             index: index
           }));
           
-          video.muted = muted; 
+          video.muted = muted; // Use original muted prop, not state
           
           if (autoPlay) {
             video.play().catch((e) => {
@@ -153,7 +150,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setPlayerState(prev => ({ ...prev, error: 'Click play to start the stream' }));
             });
           }
-        
           setPlayerState(prev => ({ 
             ...prev, 
             isLoading: false, 
@@ -197,8 +193,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const onLoadedMetadata = () => {
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-          video.muted = muted; 
-
+          video.muted = muted; // Use original muted prop
+          
           if (autoPlay) {
             video.play().catch((e) => {
               console.warn('Autoplay was prevented:', e);
@@ -234,31 +230,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         error: error instanceof Error ? error.message : 'Failed to initialize player' 
       }));
     }
-  }, [streamUrl, autoPlay, muted, destroyHLS, loadHLS]); // CRITICAL: Added destroyHLS and loadHLS dependencies
+  }, [streamUrl, autoPlay, muted, destroyHLS, loadHLS]);
 
   useEffect(() => {
     isMountedRef.current = true;
-    
-    // FIX: Explicitly destroy before initializing a new stream
-    // This is the most likely cause of a stuck stream if the component re-renders
-    // with a new streamUrl but the old HLS instance is still hanging around.
-    destroyHLS(); 
     initializePlayer();
     
     return () => {
       isMountedRef.current = false;
-      destroyHLS(); // Final cleanup on unmount
+      destroyHLS();
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
-  }, [streamUrl, initializePlayer, destroyHLS]); // CRITICAL: Added destroyHLS dependency here
+  }, [streamUrl, initializePlayer]);
 
-  // ... (Rest of useEffect for event listeners and the UI logic - remains the same as previous fix)
-  
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    // ... (handlePlay, handlePause, handleWaiting, handlePlaying, etc. logic)
     const handlePlay = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: true }));
     const handlePause = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: false }));
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
@@ -285,7 +273,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setPlayerState(prev => ({ ...prev, isFullscreen: isFullscreen }));
       }
     };
- 
+
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
@@ -293,7 +281,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('volumechange', handleVolumeChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
- 
+
     return () => {
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
@@ -303,158 +291,311 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('volumechange', handleVolumeChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []); // Note: Dependencies are omitted here for brevity but should be correct in a real app
-
-  // Control and Utility Handlers
-  const handleMouseMove = useCallback(() => {
-    if (playerState.isLoading || playerState.error) return;
-
-    setPlayerState(prev => ({ ...prev, showControls: true }));
-
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
+  }, []);
+  
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    if (video.paused) {
+      video.play().catch(console.error);
+    } else {
+      video.pause();
     }
-    controlsTimeoutRef.current = setTimeout(() => {
-      setPlayerState(prev => ({ ...prev, showControls: false }));
-    }, 3000); 
-  }, [playerState.isLoading, playerState.error]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    controlsTimeoutRef.current = setTimeout(() => {
-      setPlayerState(prev => ({ ...prev, showControls: false }));
-    }, 500); 
   }, []);
 
-  const togglePlayPause = () => {
+  const toggleMute = useCallback(() => {
     const video = videoRef.current;
-    if (!video || playerState.error) return;
+    if (!video) return;
+    video.muted = !video.muted;
+  }, []);
 
-    if (playerState.isPlaying) {
-      video.pause();
-    } else {
-      video.play().catch(e => {
-        console.warn('Play failed:', e);
-      });
-    }
-  };
-
-  const toggleMute = () => {
-    const video = videoRef.current;
-    if (video) {
-      video.muted = !video.muted;
-    }
-  };
-
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
     
-    // ... (Fullscreen logic) ...
-    if (!playerState.isFullscreen) {
-      if (container.requestFullscreen) {
-        container.requestFullscreen();
-      } else if (container.//@ts-ignore
-        webkitRequestFullscreen) {
-        //@ts-ignore
-        container.webkitRequestFullscreen();
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        // Unlock orientation when exiting fullscreen
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } else {
+        await container.requestFullscreen();
+        // Try to lock to landscape orientation on mobile
+        if (screen.orientation && screen.orientation.lock) {
+          try {
+            await screen.orientation.lock('landscape');
+          } catch (orientationError) {
+            console.warn('Could not lock orientation:', orientationError);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Fullscreen error:', err);
+    }
+  }, []);
+
+  const changeQuality = useCallback((qualityIndex: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = qualityIndex;
+      setPlayerState(prev => ({ ...prev, currentQuality: qualityIndex, showSettings: false }));
+    }
+  }, []);
+  
+  const handleRetry = useCallback(() => {
+    initializePlayer();
+  }, [initializePlayer]);
+
+  const showControlsTemporarily = useCallback(() => {
+    if (!isMountedRef.current) return;
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+      }
+    }, 3000);
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  const handlePlayerClick = useCallback(() => {
+    // Close settings menu if open
+    if (playerState.showSettings) {
+      setPlayerState(prev => ({ ...prev, showSettings: false }));
+      return;
+    }
+
+    if (playerState.showControls) {
+      // If controls are showing, hide them
+      setPlayerState(prev => ({ ...prev, showControls: false }));
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
       }
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if (document.//@ts-ignore
-        webkitExitFullscreen) {
-        //@ts-ignore
-        document.webkitExitFullscreen();
-      }
+      // If controls are hidden, show them
+      showControlsTemporarily();
     }
-  };
+  }, [playerState.showControls, playerState.showSettings, showControlsTemporarily]);
 
-  const handleReload = () => {
-    setPlayerState(prev => ({ ...prev, error: null, isLoading: true, isPlaying: false }));
-    initializePlayer();
-  };
- 
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    const progressBar = progressRef.current;
+    if (!video || !progressBar || !isFinite(video.duration)) return;
+
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const percentage = clickX / rect.width;
+    const newTime = percentage * video.duration;
+    
+    video.currentTime = newTime;
+  }, []);
+
+  const handleMouseMove = useCallback(() => {
+    showControlsTemporarily();
+  }, [showControlsTemporarily]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (playerState.isPlaying && !playerState.showSettings) {
+      setPlayerState(prev => ({ ...prev, showControls: false }));
+    }
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  // Error state
+  if (playerState.error && !playerState.isLoading) {
+    return (
+      <div className={`aspect-video bg-black flex items-center justify-center ${className}`}>
+        <div className="text-center text-white p-6">
+          <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-400" />
+          <div className="text-lg font-medium mb-2">Stream Error</div>
+          <div className="text-sm text-gray-300 mb-4">{playerState.error}</div>
+          <button
+            onClick={handleRetry}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
+          >
+            <RotateCcw size={14} />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       ref={containerRef}
-      className={`video-player-container ${className} ${playerState.isFullscreen ? 'fullscreen' : ''}`}
+      className={`relative bg-black ${playerState.isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'} ${className}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handlePlayerClick}
     >
-      <div className="player-content-wrapper">
-        <video 
-          ref={videoRef} 
-          className="w-full h-full bg-black" 
-          playsInline 
-          autoPlay={autoPlay} 
-          muted={muted} 
-        />
-        
-        {/* Loading/Error/Retry Overlay */}
-        {(playerState.isLoading || playerState.error) && (
-          <div className="video-overlay flex flex-col items-center justify-center p-4">
-            {playerState.error ? (
-              <div className="text-center">
-                <AlertCircle size={32} className="text-destructive mb-3" />
-                <p className="text-white font-semibold mb-4">{playerState.error}</p>
-                <button 
-                  onClick={handleReload} 
-                  className="btn-primary flex items-center gap-2"
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        playsInline
+        controls={false}
+      />
+
+      {playerState.isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
+          <div className="text-center text-white">
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <div className="text-sm">Loading stream...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Controls Overlay */}
+      <div 
+        className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${
+          playerState.showControls || !playerState.isPlaying ? 'opacity-100' : 'opacity-0'
+        }`}
+        style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
+      >
+        {/* Settings Menu - Fixed positioning with scrollable container */}
+        {playerState.showSettings && (
+          <div className="absolute top-4 right-4 bg-black/95 rounded-lg border border-white/20 min-w-48 max-w-64 max-h-80 overflow-hidden shadow-lg">
+            <div className="p-3 border-b border-white/10">
+              <div className="text-white text-sm font-medium">Quality</div>
+            </div>
+            <div className="max-h-60 overflow-y-auto">
+              <button
+                onClick={() => changeQuality(-1)}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                  playerState.currentQuality === -1 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                Auto
+              </button>
+              {playerState.availableQualities.map((quality) => (
+                <button
+                  key={quality.index}
+                  onClick={() => changeQuality(quality.index)}
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                    playerState.currentQuality === quality.index 
+                      ? 'bg-blue-600 text-white' 
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                  }`}
                 >
-                  <RotateCcw size={16} />
-                  <span>Retry Stream</span>
+                  {quality.height > 0 ? `${quality.height}p` : 'Auto'} 
+                  {quality.bitrate > 0 && ` (${quality.bitrate} kbps)`}
                 </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Center Play Button */}
+        {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePlay();
+              }}
+              className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto"
+            >
+              <Play size={24} fill="white" className="ml-1" />
+            </button>
+          </div>
+        )}
+
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+          {/* Enhanced Progress Bar */}
+          <div className="mb-4 pointer-events-auto">
+            <div 
+              ref={progressRef}
+              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group hover:h-2 transition-all duration-200"
+              onClick={handleProgressClick}
+            >
+              {/* Buffered Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full transition-all duration-200"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.buffered / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              />
+              {/* Current Progress */}
+              <div 
+                className="absolute top-0 left-0 h-full bg-red-500 rounded-full transition-all duration-200"
+                style={{ 
+                  width: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${(playerState.currentTime / playerState.duration) * 100}%` 
+                    : '0%' 
+                }}
+              >
+                {/* Progress handle - only visible on hover for seekable content */}
+                {isFinite(playerState.duration) && playerState.duration > 0 && (
+                  <div className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-lg" />
+                )}
               </div>
-            ) : (
-              <div className="text-center">
-                <Loader2 size={32} className="text-white animate-spin mb-3" />
-                <p className="text-white font-semibold">Loading Live Stream...</p>
-                <button 
-                  onClick={handleReload} 
-                  className="mt-3 text-sm text-white/70 hover:text-white flex items-center gap-1"
-                >
-                  <RotateCcw size={14} /> Retry
-                </button>
+            </div>
+            {/* Time Display */}
+            {isFinite(playerState.duration) && playerState.duration > 0 && (
+              <div className="flex justify-between text-xs text-white/80 mt-1">
+                <span>{formatTime(playerState.currentTime)}</span>
+                <span>{formatTime(playerState.duration)}</span>
               </div>
             )}
           </div>
-        )}
 
-        {/* Play/Pause Button - shows in the middle of the screen */}
-        {!playerState.isLoading && !playerState.error && (
-            <button 
-                onClick={togglePlayPause} 
-                className={`absolute inset-0 flex items-center justify-center transition-opacity ${playerState.showControls && !playerState.isPlaying ? 'opacity-100' : 'opacity-0'}`}
-                aria-label={playerState.isPlaying ? 'Pause' : 'Play'}
+          {/* Control Buttons */}
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <button
+              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
             >
-                <div className="p-4 bg-black/50 rounded-full hover:bg-black/70 transition-colors hover-scale">
-                    {playerState.isPlaying ? <Pause size={32} fill="white" className="text-white" /> : <Play size={32} fill="white" className="text-white" />}
-                </div>
-            </button>
-        )}
-
-        {/* Controls Bar */}
-        <div className={`video-controls ${playerState.showControls ? 'visible' : ''}`}>
-          <div className="controls-left">
-            <button onClick={togglePlayPause} aria-label={playerState.isPlaying ? 'Pause' : 'Play'}>
               {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
-            <button onClick={toggleMute} aria-label={playerState.isMuted ? 'Unmute' : 'Mute'}>
-              {playerState.isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+            >
+              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <div className="channel-name-display">{channelName}</div>
-          </div>
-          <div className="controls-right">
-            {/* Settings Button */}
-            <button onClick={() => setPlayerState(prev => ({...prev, showSettings: !prev.showSettings}))}>
-              <Settings size={20} />
-            </button>
-            {/* Fullscreen Button */}
-            <button onClick={toggleFullscreen} aria-label={playerState.isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-              {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+
+            {/* Time Display - Only for non-live streams */}
+            {isFinite(playerState.duration) && playerState.duration > 0 && (
+              <div className="text-white text-sm">
+                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+              </div>
+            )}
+
+            <div className="flex-1"></div>
+
+            {/* Settings - Only show if there are quality options */}
+            {playerState.availableQualities.length > 0 && (
+              <button
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
+                }}
+                className={`text-white hover:text-blue-300 transition-colors p-2 ${
+                  playerState.showSettings ? 'text-blue-400' : ''
+                }`}
+                title="Quality Settings"
+              >
+                <Settings size={18} />
+              </button>
+            )}
+
+            {/* Fullscreen */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="text-white hover:text-blue-300 transition-colors p-2"
+              title={playerState.isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
           </div>
         </div>
@@ -462,5 +603,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
+
+// Extend window interface for HLS.js
+declare global {
+  interface Window {
+    Hls: any;
+  }
+}
 
 export default VideoPlayer;
