@@ -46,9 +46,10 @@ const CategoryChannels = () => {
           categoryName,
         };
       } else if (line && !line.startsWith('#') && currentChannel.name) {
-        // This is a stream URL - Create clean ID without m3u prefix
+        // Create consistent ID format for M3U channels - same as ChannelPlayer
+        const cleanChannelName = currentChannel.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const channel: PublicChannel = {
-          id: `${categoryId}_${channels.length}_${Date.now()}`, // Clean ID
+          id: `${categoryId}_${cleanChannelName}_${channels.length}`,
           name: currentChannel.name,
           logoUrl: currentChannel.logoUrl || '/placeholder.svg',
           streamUrl: line,
@@ -108,9 +109,10 @@ const CategoryChannels = () => {
             categoryData.name
           );
           allChannels = [...allChannels, ...m3uChannels];
+          console.log(`Loaded ${m3uChannels.length} channels from M3U playlist`);
         } catch (m3uError) {
           console.error('Error loading M3U playlist:', m3uError);
-          setError('Failed to load channels. Please try again.');
+          setError('Failed to load M3U playlist channels. Please try again.');
         }
       }
 
@@ -125,6 +127,7 @@ const CategoryChannels = () => {
       })) as PublicChannel[];
 
       allChannels = [...allChannels, ...manualChannels];
+      console.log(`Total channels loaded: ${allChannels.length}`);
       setChannels(allChannels);
 
     } catch (error) {
@@ -182,6 +185,9 @@ const CategoryChannels = () => {
         </h1>
         <p className="text-text-secondary">
           {channels.length} channel{channels.length !== 1 ? 's' : ''} available
+          {category.m3uUrl && (
+            <span className="ml-2 text-green-500">• M3U Playlist</span>
+          )}
         </p>
       </div>
 
@@ -191,6 +197,11 @@ const CategoryChannels = () => {
           <h3 className="text-lg font-semibold mb-2">No Channels Available</h3>
           <p className="text-text-secondary">
             No channels have been added to this category yet.
+            {category.m3uUrl && (
+              <span className="block mt-2 text-yellow-500">
+                The M3U playlist might be empty or inaccessible.
+              </span>
+            )}
           </p>
         </div>
       ) : (
