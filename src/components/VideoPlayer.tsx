@@ -1,6 +1,6 @@
-// /src/components/VideoPlayer.tsx
+// /src/components/VideoPlayer.tsx - Enhanced Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, Fullscreen } from 'lucide-react';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -46,6 +46,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     showSettings: false,
     currentQuality: -1, // -1 for auto
     availableQualities: [] as QualityLevel[],
+    isDraggingSeek: false,
+    seekPosition: 0,
   });
 
   const destroyHLS = useCallback(() => {
@@ -252,7 +254,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
     const handleTimeUpdate = () => {
-      if (isMountedRef.current && video) {
+      if (isMountedRef.current && video && !playerState.isDraggingSeek) {
         const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
         setPlayerState(prev => ({ 
           ...prev, 
@@ -291,7 +293,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('volumechange', handleVolumeChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [playerState.isDraggingSeek]);
   
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -317,8 +319,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
+        // Exit landscape mode
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
       } else {
         await container.requestFullscreen();
+        // Force landscape mode
+        if (screen.orientation && screen.orientation.lock) {
+          try {
+            await screen.orientation.lock('landscape');
+          } catch (orientationError) {
+            console.warn('Could not lock to landscape:', orientationError);
+          }
+        }
       }
     } catch (err) {
       console.error('Fullscreen error:', err);
@@ -370,17 +384,50 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.showControls, playerState.showSettings, showControlsTemporarily]);
 
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // Enhanced seek bar functionality with dragging
+  const handleSeekStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
     if (!video || !progressBar || !isFinite(video.duration)) return;
 
+    setPlayerState(prev => ({ ...prev, isDraggingSeek: true }));
+
+    const handleSeekMove = (moveEvent: MouseEvent) => {
+      const rect = progressBar.getBoundingClientRect();
+      const clickX = Math.max(0, Math.min(moveEvent.clientX - rect.left, rect.width));
+      const percentage = clickX / rect.width;
+      const newTime = percentage * video.duration;
+      
+      setPlayerState(prev => ({ ...prev, seekPosition: newTime }));
+    };
+
+    const handleSeekEnd = (endEvent: MouseEvent) => {
+      const rect = progressBar.getBoundingClientRect();
+      const clickX = Math.max(0, Math.min(endEvent.clientX - rect.left, rect.width));
+      const percentage = clickX / rect.width;
+      const newTime = percentage * video.duration;
+      
+      video.currentTime = newTime;
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isDraggingSeek: false,
+        currentTime: newTime,
+        seekPosition: 0
+      }));
+
+      document.removeEventListener('mousemove', handleSeekMove);
+      document.removeEventListener('mouseup', handleSeekEnd);
+    };
+
+    // Initial click position
     const rect = progressBar.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
+    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const percentage = clickX / rect.width;
     const newTime = percentage * video.duration;
-    
-    video.currentTime = newTime;
+    setPlayerState(prev => ({ ...prev, seekPosition: newTime }));
+
+    document.addEventListener('mousemove', handleSeekMove);
+    document.addEventListener('mouseup', handleSeekEnd);
   }, []);
 
   const handleMouseMove = useCallback(() => {
@@ -444,32 +491,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }`}
         style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
       >
-        {/* Settings Menu */}
+        {/* Settings Menu - Enlarged and Scrollable */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48">
-            <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
-            <div className="space-y-1">
+          <div className="absolute top-4 right-4 bg-black/95 border border-gray-600 min-w-64 max-w-80 max-h-80 overflow-y-auto">
+            <div className="text-white text-sm font-medium mb-2 px-4 py-3 border-b border-gray-600 sticky top-0 bg-black/95">
+              Quality Settings
+            </div>
+            <div className="p-2 space-y-1">
               <button
                 onClick={() => changeQuality(-1)}
-                className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                   playerState.currentQuality === -1 
                     ? 'bg-blue-600 text-white' 
                     : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
-                Auto
+                Auto (Adaptive)
               </button>
               {playerState.availableQualities.map((quality) => (
                 <button
                   key={quality.index}
                   onClick={() => changeQuality(quality.index)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
+                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                     playerState.currentQuality === quality.index 
                       ? 'bg-blue-600 text-white' 
                       : 'text-gray-300 hover:bg-gray-700'
                   }`}
                 >
-                  {quality.height}p ({quality.bitrate} kbps)
+                  {quality.height > 0 ? `${quality.height}p` : 'Audio Only'} 
+                  {quality.bitrate > 0 && ` (${quality.bitrate} kbps)`}
                 </button>
               ))}
             </div>
@@ -492,17 +542,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
 
         {/* Bottom Controls */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-          {/* Progress Bar */}
-          <div className="mb-4 pointer-events-auto">
+        <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
+          {/* Minimalist Progress Bar at Bottom */}
+          <div className="mb-0 pointer-events-auto">
             <div 
               ref={progressRef}
-              className="relative h-1 bg-white bg-opacity-30 rounded-full cursor-pointer group"
-              onClick={handleProgressClick}
+              className="relative h-2 bg-white bg-opacity-20 cursor-pointer group hover:h-3 transition-all duration-200"
+              onMouseDown={handleSeekStart}
             >
               {/* Buffered Progress */}
               <div 
-                className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full"
+                className="absolute top-0 left-0 h-full bg-white bg-opacity-40 transition-all duration-200"
                 style={{ 
                   width: isFinite(playerState.duration) && playerState.duration > 0 
                     ? `${(playerState.buffered / playerState.duration) * 100}%` 
@@ -511,65 +561,77 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               />
               {/* Current Progress */}
               <div 
-                className="absolute top-0 left-0 h-full bg-red-500 rounded-full"
+                className="absolute top-0 left-0 h-full bg-red-500 transition-all duration-200"
                 style={{ 
                   width: isFinite(playerState.duration) && playerState.duration > 0 
-                    ? `${(playerState.currentTime / playerState.duration) * 100}%` 
+                    ? `${((playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime) / playerState.duration) * 100}%` 
                     : '0%' 
+                }}
+              />
+              {/* Seek Ball */}
+              <div 
+                className="absolute top-1/2 transform -translate-y-1/2 w-4 h-4 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-lg"
+                style={{ 
+                  left: isFinite(playerState.duration) && playerState.duration > 0 
+                    ? `${((playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime) / playerState.duration) * 100}%` 
+                    : '0%',
+                  marginLeft: '-8px'
                 }}
               />
             </div>
           </div>
 
           {/* Control Buttons */}
-          <div className="flex items-center gap-3 pointer-events-auto">
-            <button
-              onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-              className="text-white hover:text-blue-300 transition-colors p-2"
-            >
-              {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
-            </button>
-            
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-              className="text-white hover:text-blue-300 transition-colors p-2"
-            >
-              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-
-            {/* Time Display - Only for non-live streams */}
-            {isFinite(playerState.duration) && playerState.duration > 0 && (
-              <div className="text-white text-sm">
-                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-              </div>
-            )}
-
-            <div className="flex-1"></div>
-
-            {/* Settings - Only show if there are quality options */}
-            {playerState.availableQualities.length > 0 && (
+          <div className="flex items-center justify-between p-4 pointer-events-auto bg-gradient-to-t from-black/80 to-transparent">
+            <div className="flex items-center gap-3">
               <button
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
-                }}
-                className={`text-white hover:text-blue-300 transition-colors p-2 ${
-                  playerState.showSettings ? 'text-blue-400' : ''
-                }`}
-                title="Settings"
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+                className="text-white hover:text-blue-300 transition-colors p-2"
               >
-                <Settings size={18} />
+                {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
               </button>
-            )}
+              
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
 
-            {/* Fullscreen */}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="text-white hover:text-blue-300 transition-colors p-2"
-              title="Fullscreen"
-            >
-              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+              {/* Time Display - Only for non-live streams */}
+              {isFinite(playerState.duration) && playerState.duration > 0 && (
+                <div className="text-white text-sm">
+                  {formatTime(playerState.isDraggingSeek ? playerState.seekPosition : playerState.currentTime)} / {formatTime(playerState.duration)}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Settings - Only show if there are quality options */}
+              {playerState.availableQualities.length > 0 && (
+                <button
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings }));
+                  }}
+                  className={`text-white hover:text-blue-300 transition-colors p-2 ${
+                    playerState.showSettings ? 'text-blue-400' : ''
+                  }`}
+                  title="Quality Settings"
+                >
+                  <Settings size={18} />
+                </button>
+              )}
+
+              {/* Fullscreen with Picture-in-Picture functionality */}
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                className="text-white hover:text-blue-300 transition-colors p-2"
+                title="Fullscreen (Landscape)"
+              >
+                {playerState.isFullscreen ? <Minimize size={18} /> : <Fullscreen size={18} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -577,10 +639,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
 };
 
-// Extend window interface for HLS.js
+// Extend window interface for HLS.js and Screen Orientation
 declare global {
   interface Window {
     Hls: any;
+  }
+  interface Screen {
+    orientation?: {
+      lock: (orientation: string) => Promise<void>;
+      unlock: () => void;
+    };
   }
 }
 
