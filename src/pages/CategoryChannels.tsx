@@ -7,7 +7,7 @@ import { PublicChannel, Category } from '@/types';
 import ChannelCard from '@/components/ChannelCard';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Tv } from 'lucide-react';
+import { AlertCircle, Tv, Search } from 'lucide-react';
 
 const CategoryChannels = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -15,12 +15,21 @@ const CategoryChannels = () => {
   const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredChannels, setFilteredChannels] = useState<PublicChannel[]>([]);
 
   useEffect(() => {
     if (slug) {
       fetchCategoryAndChannels();
     }
   }, [slug]);
+
+  useEffect(() => {
+    const filtered = channels.filter(channel =>
+      channel.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    setFilteredChannels(filtered);
+  }, [searchQuery, channels]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
     const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
@@ -145,6 +154,7 @@ const CategoryChannels = () => {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-96" />
         </div>
+        <Skeleton className="h-10 w-full" />
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="space-y-2">
@@ -185,28 +195,50 @@ const CategoryChannels = () => {
         </h1>
         <p className="text-text-secondary">
           {channels.length} channel{channels.length !== 1 ? 's' : ''} available
-          {category.m3uUrl && (
-            <span className="ml-2 text-green-500">• M3U Playlist</span>
-          )}
         </p>
       </div>
 
-      {channels.length === 0 ? (
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-secondary w-5 h-5" />
+        <input
+          type="text"
+          placeholder="Search channels..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="form-input pl-10"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {filteredChannels.length === 0 && searchQuery ? (
+        <div className="text-center py-12">
+          <Search size={48} className="text-text-secondary mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">No channels found</h3>
+          <p className="text-text-secondary">
+            No channels match "{searchQuery}". Try a different search term.
+          </p>
+        </div>
+      ) : filteredChannels.length === 0 ? (
         <div className="text-center py-12">
           <Tv size={48} className="text-text-secondary mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No Channels Available</h3>
           <p className="text-text-secondary">
             No channels have been added to this category yet.
-            {category.m3uUrl && (
-              <span className="block mt-2 text-yellow-500">
-                The M3U playlist might be empty or inaccessible.
-              </span>
-            )}
           </p>
         </div>
       ) : (
         <div className="channel-grid">
-          {channels.map(channel => (
+          {filteredChannels.map(channel => (
             <ChannelCard key={channel.id} channel={channel} />
           ))}
         </div>
