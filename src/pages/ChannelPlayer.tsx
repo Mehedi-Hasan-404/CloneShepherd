@@ -34,11 +34,20 @@ const ChannelPlayer = () => {
   }, [channelId]);
 
   useEffect(() => {
-    const filtered = allChannels.filter(ch => 
-      ch.id !== channel?.id && // Exclude current playing channel
-      ch.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    setFilteredChannels(filtered);
+    if (allChannels.length > 0 && channel) {
+      const filtered = allChannels.filter(ch => 
+        ch.id !== channel.id && // Exclude current playing channel
+        ch.name && ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredChannels(filtered);
+    } else if (allChannels.length > 0) {
+      const filtered = allChannels.filter(ch => 
+        ch.name && ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredChannels(filtered);
+    } else {
+      setFilteredChannels([]);
+    }
   }, [searchQuery, allChannels, channel]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
@@ -90,7 +99,7 @@ const ChannelPlayer = () => {
       return parseM3U(m3uContent, categoryId, categoryName);
     } catch (error) {
       console.error('Error fetching M3U playlist:', error);
-      throw error;
+      return []; // Return empty array instead of throwing
     }
   };
 
@@ -103,13 +112,17 @@ const ChannelPlayer = () => {
       let allChannelsList: PublicChannel[] = [];
 
       // Get manual channels
-      const channelsRef = collection(db, 'channels');
-      const channelsSnapshot = await getDocs(channelsRef);
-      const manualChannels = channelsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as PublicChannel[];
-      allChannelsList = [...allChannelsList, ...manualChannels];
+      try {
+        const channelsRef = collection(db, 'channels');
+        const channelsSnapshot = await getDocs(channelsRef);
+        const manualChannels = channelsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as PublicChannel[];
+        allChannelsList = [...allChannelsList, ...manualChannels];
+      } catch (manualChannelsError) {
+        console.error('Error fetching manual channels:', manualChannelsError);
+      }
 
       // Get M3U channels from all categories
       for (const categoryDoc of categoriesSnapshot.docs) {
@@ -122,7 +135,9 @@ const ChannelPlayer = () => {
               categoryData.id,
               categoryData.name
             );
-            allChannelsList = [...allChannelsList, ...m3uChannels];
+            if (m3uChannels.length > 0) {
+              allChannelsList = [...allChannelsList, ...m3uChannels];
+            }
           } catch (m3uError) {
             console.error('Error loading M3U playlist for category:', categoryData.name, m3uError);
           }
@@ -154,55 +169,63 @@ const ChannelPlayer = () => {
       let foundChannel: PublicChannel | null = null;
       
       // First try to find in manual channels
-      const channelsRef = collection(db, 'channels');
-      const channelsSnapshot = await getDocs(channelsRef);
-      
-      // Check manual channels first
-      for (const doc of channelsSnapshot.docs) {
-        if (doc.id === decodedChannelId || doc.id === channelId) {
-          foundChannel = { id: doc.id, ...doc.data() } as PublicChannel;
-          console.log('Found in manual channels:', foundChannel);
-          break;
+      try {
+        const channelsRef = collection(db, 'channels');
+        const channelsSnapshot = await getDocs(channelsRef);
+        
+        // Check manual channels first
+        for (const doc of channelsSnapshot.docs) {
+          if (doc.id === decodedChannelId || doc.id === channelId) {
+            foundChannel = { id: doc.id, ...doc.data() } as PublicChannel;
+            console.log('Found in manual channels:', foundChannel);
+            break;
+          }
         }
+      } catch (manualChannelsError) {
+        console.error('Error fetching manual channels:', manualChannelsError);
       }
 
       // If not found in manual channels, search in M3U playlists
       if (!foundChannel) {
         console.log('Not found in manual channels, searching M3U playlists...');
-        const categoriesRef = collection(db, 'categories');
-        const categoriesSnapshot = await getDocs(categoriesRef);
-        
-        for (const categoryDoc of categoriesSnapshot.docs) {
-          const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
+        try {
+          const categoriesRef = collection(db, 'categories');
+          const categoriesSnapshot = await getDocs(categoriesRef);
           
-          if (categoryData.m3uUrl) {
-            console.log(`Checking M3U playlist for category: ${categoryData.name}`);
-            try {
-              const m3uChannels = await fetchM3UPlaylist(
-                categoryData.m3uUrl,
-                categoryData.id,
-                categoryData.name
-              );
-              
-              console.log(`Found ${m3uChannels.length} channels in M3U playlist`);
-              
-              // Try both exact match and partial match for M3U channels
-              const m3uChannel = m3uChannels.find(ch => 
-                ch.id === decodedChannelId || 
-                ch.id === channelId ||
-                ch.id.includes(decodedChannelId) ||
-                ch.id.includes(channelId)
-              );
-              
-              if (m3uChannel) {
-                foundChannel = m3uChannel;
-                console.log('Found in M3U playlist:', foundChannel);
-                break;
+          for (const categoryDoc of categoriesSnapshot.docs) {
+            const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
+            
+            if (categoryData.m3uUrl) {
+              console.log(`Checking M3U playlist for category: ${categoryData.name}`);
+              try {
+                const m3uChannels = await fetchM3UPlaylist(
+                  categoryData.m3uUrl,
+                  categoryData.id,
+                  categoryData.name
+                );
+                
+                console.log(`Found ${m3uChannels.length} channels in M3U playlist`);
+                
+                // Try both exact match and partial match for M3U channels
+                const m3uChannel = m3uChannels.find(ch => 
+                  ch.id === decodedChannelId || 
+                  ch.id === channelId ||
+                  ch.id.includes(decodedChannelId) ||
+                  ch.id.includes(channelId)
+                );
+                
+                if (m3uChannel) {
+                  foundChannel = m3uChannel;
+                  console.log('Found in M3U playlist:', foundChannel);
+                  break;
+                }
+              } catch (m3uError) {
+                console.error('Error loading M3U playlist for category:', categoryData.name, m3uError);
               }
-            } catch (m3uError) {
-              console.error('Error loading M3U playlist for category:', categoryData.name, m3uError);
             }
           }
+        } catch (categoriesError) {
+          console.error('Error fetching categories:', categoriesError);
         }
       }
 
@@ -216,7 +239,9 @@ const ChannelPlayer = () => {
       setChannel(foundChannel);
       
       // Add to recent channels
-      addRecent(foundChannel);
+      if (addRecent) {
+        addRecent(foundChannel);
+      }
 
     } catch (error) {
       console.error('Error fetching channel:', error);
@@ -229,10 +254,15 @@ const ChannelPlayer = () => {
   const handleFavoriteToggle = () => {
     if (!channel) return;
 
-    if (isFavorite(channel.id)) {
-      removeFavorite(channel.id);
-    } else {
-      addFavorite(channel);
+    try {
+      if (isFavorite(channel.id)) {
+        removeFavorite(channel.id);
+      } else {
+        addFavorite(channel);
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      toast.error("Failed to update favorites");
     }
   };
 
@@ -261,7 +291,9 @@ const ChannelPlayer = () => {
   };
 
   const handleChannelSelect = (selectedChannel: PublicChannel) => {
-    navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
+    if (selectedChannel && selectedChannel.id) {
+      navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
+    }
   };
 
   if (loading) {
@@ -360,7 +392,7 @@ const ChannelPlayer = () => {
       {/* Channel Info */}
       <div className="flex items-center gap-4">
         <img
-          src={channel.logoUrl}
+          src={channel.logoUrl || '/placeholder.svg'}
           alt={channel.name}
           className="w-16 h-16 object-contain bg-white rounded-lg"
           onError={(e) => {
@@ -423,6 +455,14 @@ const ChannelPlayer = () => {
               No channels match "{searchQuery}". Try a different search term.
             </p>
           </div>
+        ) : filteredChannels.length === 0 && allChannels.length > 0 ? (
+          <div className="text-center py-8">
+            <Tv size={48} className="text-text-secondary mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">All channels loaded</h3>
+            <p className="text-text-secondary">
+              Use the search bar to find specific channels.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 max-h-96 overflow-y-auto">
             {filteredChannels.slice(0, 50).map(ch => (
@@ -433,7 +473,7 @@ const ChannelPlayer = () => {
               >
                 <div className="flex items-center gap-3">
                   <img
-                    src={ch.logoUrl}
+                    src={ch.logoUrl || '/placeholder.svg'}
                     alt={ch.name}
                     className="w-10 h-10 object-contain bg-white rounded flex-shrink-0"
                     onError={(e) => {
@@ -442,9 +482,9 @@ const ChannelPlayer = () => {
                   />
                   <div className="min-w-0 flex-1">
                     <h4 className="font-medium text-sm truncate group-hover:text-accent transition-colors">
-                      {ch.name}
+                      {ch.name || 'Unknown Channel'}
                     </h4>
-                    <p className="text-xs text-text-secondary truncate">{ch.categoryName}</p>
+                    <p className="text-xs text-text-secondary truncate">{ch.categoryName || 'Unknown Category'}</p>
                   </div>
                   <Play size={16} className="text-text-secondary group-hover:text-accent transition-colors flex-shrink-0" />
                 </div>
