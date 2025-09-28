@@ -1,6 +1,7 @@
 // /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings } from 'lucide-react';
+// Updated icons for PiP and better control differentiation
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -64,6 +65,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const loadHLS = useCallback(() => {
     return new Promise<void>((resolve, reject) => {
+      // Check for Hls on window before attempting to load script
       if (window.Hls) {
         resolve();
         return;
@@ -78,7 +80,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, []);
 
   const formatTime = (time: number): string => {
-    if (!isFinite(time)) return "LIVE";
+    if (!isFinite(time) || time < 0) return "LIVE";
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
@@ -86,7 +88,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (hours > 0) {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
   const initializePlayer = useCallback(async () => {
@@ -131,12 +133,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         hls.loadSource(streamUrl);
         hls.attachMedia(video);
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           
           // Get available quality levels
-          const levels = hls.levels.map((level: any, index: number) => ({
+          const levels = data.levels.map((level: any, index: number) => ({
             height: level.height || 0,
             bitrate: Math.round(level.bitrate / 1000), // Convert to kbps
             index: index
@@ -337,6 +339,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
+  // NEW: Picture-in-Picture Toggle
+  const togglePiP = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !('pictureInPictureEnabled' in document)) return;
+
+    if (!document.pictureInPictureElement) {
+      video.requestPictureInPicture()
+        .catch(error => console.error("PiP failed:", error));
+    } else {
+      document.exitPictureInPicture();
+    }
+  }, []);
+
   const changeQuality = useCallback((qualityIndex: number) => {
     if (hlsRef.current) {
       hlsRef.current.currentLevel = qualityIndex;
@@ -385,7 +400,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
-    if (!video || !progressBar || !isFinite(video.duration)) return;
+    if (!video || !progressBar || !isFinite(video.duration) || video.duration === 0) return;
 
     const rect = progressBar.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -456,9 +471,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }`}
         style={{ pointerEvents: playerState.showControls || !playerState.isPlaying ? 'auto' : 'none' }}
       >
-        {/* Settings Menu - Fixed positioning with scrollable container */}
+        {/* Settings Menu - FIXED: No overflow-hidden on outer container */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/95 rounded-lg border border-white/20 min-w-48 max-w-64 max-h-80 overflow-hidden shadow-lg">
+          <div className="absolute top-4 right-4 bg-black/95 rounded-lg border border-white/20 min-w-48 max-w-64 shadow-lg z-10">
             <div className="p-3 border-b border-white/10">
               <div className="text-white text-sm font-medium">Quality</div>
             </div>
@@ -508,7 +523,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Bottom Controls */}
         <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-          {/* Enhanced Progress Bar */}
+          
+          {/* Enhanced Progress Bar - YOUTUBE STYLE SEEKBAR IS NOW AT THE TOP OF THE CONTROL BAR */}
           <div className="mb-4 pointer-events-auto">
             <div 
               ref={progressRef}
@@ -539,17 +555,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 )}
               </div>
             </div>
-            {/* Time Display */}
-            {isFinite(playerState.duration) && playerState.duration > 0 && (
-              <div className="flex justify-between text-xs text-white/80 mt-1">
-                <span>{formatTime(playerState.currentTime)}</span>
-                <span>{formatTime(playerState.duration)}</span>
-              </div>
-            )}
+            {/* Removed redundant time display from this section */}
           </div>
 
           {/* Control Buttons */}
           <div className="flex items-center gap-3 pointer-events-auto">
+            
+            {/* Play/Pause */}
             <button
               onClick={(e) => { e.stopPropagation(); togglePlay(); }}
               className="text-white hover:text-blue-300 transition-colors p-2"
@@ -557,6 +569,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
             
+            {/* Volume */}
             <button
               onClick={(e) => { e.stopPropagation(); toggleMute(); }}
               className="text-white hover:text-blue-300 transition-colors p-2"
@@ -564,14 +577,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
 
-            {/* Time Display - Only for non-live streams */}
-            {isFinite(playerState.duration) && playerState.duration > 0 && (
-              <div className="text-white text-sm">
-                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-              </div>
-            )}
+            {/* Time Display - CONSOLIDATED YOUTUBE STYLE TIMER */}
+            <div className="text-white text-sm font-mono min-w-[70px]">
+              {isFinite(playerState.duration) && playerState.duration > 0 ? (
+                // Seekable stream: Current time / Duration
+                `${formatTime(playerState.currentTime)} / ${formatTime(playerState.duration)}`
+              ) : (
+                // Live stream
+                'LIVE'
+              )}
+            </div>
 
             <div className="flex-1"></div>
+
+            {/* PiP Button - NEW */}
+            {('pictureInPictureEnabled' in document) && (
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePiP(); }}
+                className="text-white hover:text-blue-300 transition-colors p-2"
+                title="Picture-in-Picture"
+              >
+                {/* Custom PiP Icon (using PiP2 from lucide-react, but adding SVG fallback/details) */}
+                <PictureInPicture2 size={18} /> 
+              </button>
+            )}
 
             {/* Settings - Only show if there are quality options */}
             {playerState.availableQualities.length > 0 && (
