@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx
+// /src/components/VideoPlayer.tsx - Enhanced Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
 
@@ -13,7 +13,6 @@ interface VideoPlayerProps {
 interface QualityLevel {
   height: number;
   bitrate: number;
-  // Use a generic 'id' that can be a HLS index or Shaka track ID
   id: number; 
 }
 
@@ -61,6 +60,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isPipActive: false,
   });
 
+  // Enhanced stream type detection
+  const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
+    console.log('Detecting stream type for:', url);
+    
+    // Handle custom DRM format with ?| separator
+    let cleanUrl = url;
+    let drmInfo = null;
+    
+    if (url.includes('?|')) {
+      const [baseUrl, drmParams] = url.split('?|');
+      cleanUrl = baseUrl;
+      
+      // Parse DRM parameters
+      if (drmParams) {
+        const params = new URLSearchParams(drmParams);
+        const drmScheme = params.get('drmScheme');
+        const drmLicense = params.get('drmLicense');
+        
+        if (drmScheme && drmLicense) {
+          drmInfo = { scheme: drmScheme, license: drmLicense };
+          console.log('DRM detected:', drmInfo);
+        }
+      }
+    }
+    
+    // Detect stream type from clean URL
+    const urlLower = cleanUrl.toLowerCase();
+    
+    // DASH detection
+    if (urlLower.includes('.mpd') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
+      return { type: 'dash', cleanUrl, drmInfo };
+    }
+    
+    // HLS detection
+    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/') || urlLower.includes('hls')) {
+      return { type: 'hls', cleanUrl, drmInfo };
+    }
+    
+    // MP4 and other native formats
+    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
+      return { type: 'native', cleanUrl, drmInfo };
+    }
+    
+    // Default fallback based on content hints
+    if (urlLower.includes('manifest') || drmInfo) {
+      return { type: 'dash', cleanUrl, drmInfo }; // Often DASH manifests
+    }
+    
+    // Final fallback - try HLS first as it's more common
+    return { type: 'hls', cleanUrl, drmInfo };
+  }, []);
+
   // --- Player Loading and Destruction ---
 
   const loadScript = useCallback((src: string, id: string) => {
@@ -80,11 +131,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const destroyPlayer = useCallback(() => {
     if (hlsRef.current) {
-      hlsRef.current.destroy();
+      try {
+        hlsRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS player:', e);
+      }
       hlsRef.current = null;
     }
     if (shakaPlayerRef.current) {
-      shakaPlayerRef.current.destroy();
+      try {
+        shakaPlayerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying Shaka player:', e);
+      }
       shakaPlayerRef.current = null;
     }
     if (loadingTimeoutRef.current) {
@@ -117,16 +176,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, PLAYER_LOAD_TIMEOUT);
 
     try {
-      // ** CHOOSE PLAYER BASED ON URL **
-      if (streamUrl.includes('.mpd')) {
+      // Enhanced stream type detection
+      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+      console.log(`Detected stream type: ${type}, Clean URL: ${cleanUrl}`);
+      
+      if (drmInfo) {
+        console.log('DRM info:', drmInfo);
+      }
+
+      // Initialize appropriate player
+      if (type === 'dash') {
         playerTypeRef.current = 'shaka';
-        await initShakaPlayer(streamUrl, video);
-      } else if (streamUrl.includes('.m3u8')) {
+        await initShakaPlayer(cleanUrl, video, drmInfo);
+      } else if (type === 'hls') {
         playerTypeRef.current = 'hls';
-        await initHlsPlayer(streamUrl, video);
-      } else { // Handle native playback for MP4, etc.
+        await initHlsPlayer(cleanUrl, video);
+      } else {
         playerTypeRef.current = 'native';
-        initNativePlayer(streamUrl, video);
+        initNativePlayer(cleanUrl, video);
       }
     } catch (error) {
       console.error('Player initialization error:', error);
@@ -137,139 +204,273 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         error: error instanceof Error ? error.message : 'Failed to initialize player'
       }));
     }
-  }, [streamUrl, autoPlay, muted, destroyPlayer]);
+  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
 
   const initHlsPlayer = async (url: string, video: HTMLVideoElement) => {
-    await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest', 'hls-script');
-    const Hls = window.Hls;
+    console.log('Initializing HLS player with URL:', url);
     
-    if (Hls && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: false }); // worker can cause issues in some envs
-      hlsRef.current = hls;
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest', 'hls-script');
+      const Hls = window.Hls;
+      
+      if (Hls && Hls.isSupported()) {
+        const hls = new Hls({ 
+          enableWorker: false,
+          debug: false,
+          capLevelToPlayerSize: true,
+          maxLoadingDelay: 4,
+          maxBufferLength: 30,
+          maxBufferSize: 60 * 1000 * 1000,
+          fragLoadingTimeOut: 20000,
+          manifestLoadingTimeOut: 10000
+        });
+        hlsRef.current = hls;
 
-      hls.loadSource(url);
-      hls.attachMedia(video);
+        hls.loadSource(url);
+        hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (!isMountedRef.current) return;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+          
+          const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({
+            height: level.height || 0,
+            bitrate: Math.round(level.bitrate / 1000),
+            id: index,
+          }));
+          
+          video.muted = muted;
+          if (autoPlay) {
+            video.play().catch(console.warn);
+          }
+          
+          setPlayerState(prev => ({ 
+            ...prev, 
+            isLoading: false, 
+            error: null,
+            availableQualities: levels,
+            currentQuality: hls.currentLevel,
+            isMuted: video.muted
+          }));
+          
+          console.log('HLS player initialized successfully');
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isMountedRef.current) return;
+          console.error('HLS Error:', data);
+          
+          if (data.fatal) {
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            
+            // Try to recover from fatal errors
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('Network error, trying to recover...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('Media error, trying to recover...');
+                hls.recoverMediaError();
+                break;
+              default:
+                setPlayerState(prev => ({ 
+                  ...prev, 
+                  isLoading: false, 
+                  error: `HLS Error: ${data.details}` 
+                }));
+                destroyPlayer();
+                break;
+            }
+          }
+        });
+
+        // Handle successful recovery
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+          console.log('HLS media attached successfully');
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari)
+        console.log('Using native HLS support');
+        initNativePlayer(url, video);
+      } else {
+        throw new Error('HLS is not supported in this browser');
+      }
+    } catch (error) {
+      console.error('Error initializing HLS player:', error);
+      throw error;
+    }
+  };
+  
+  const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
+    console.log('Initializing Shaka player with URL:', url);
+    
+    try {
+      await loadScript('https://ajax.googleapis.com/ajax/libs/shaka-player/4.3.4/shaka-player.compiled.js', 'shaka-script');
+      const shaka = window.shaka;
+      
+      // Install polyfills
+      shaka.polyfill.installAll();
+
+      if (!shaka.Player.isBrowserSupported()) {
+        throw new Error('This browser is not supported by Shaka Player');
+      }
+      
+      const player = new shaka.Player(video);
+      shakaPlayerRef.current = player;
+      
+      // Configure player
+      player.configure({
+        streaming: {
+          bufferingGoal: 30,
+          rebufferingGoal: 15,
+          bufferBehind: 30,
+          retryParameters: {
+            timeout: 10000,
+            maxAttempts: 4,
+            baseDelay: 1000,
+            backoffFactor: 2,
+            fuzzFactor: 0.5
+          }
+        },
+        manifest: {
+          retryParameters: {
+            timeout: 10000,
+            maxAttempts: 4,
+            baseDelay: 1000,
+            backoffFactor: 2,
+            fuzzFactor: 0.5
+          }
+        }
+      });
+
+      // Handle DRM if present
+      if (drmInfo) {
+        console.log('Configuring DRM:', drmInfo);
+        
+        if (drmInfo.scheme === 'clearkey' && drmInfo.license) {
+          if (drmInfo.license.includes(':')) {
+            const [keyId, key] = drmInfo.license.split(':');
+            player.configure({
+              drm: {
+                clearKeys: { [keyId]: key }
+              }
+            });
+            console.log('ClearKey DRM configured');
+          }
+        }
+      }
+
+      // Error handling
+      player.addEventListener('error', (event: any) => {
+        console.error('Shaka Player Error:', event.detail);
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         
-        const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({
-          height: level.height || 0,
-          bitrate: Math.round(level.bitrate / 1000),
-          id: index,
-        }));
+        const errorCode = event.detail.code;
+        let errorMessage = `Stream error (${errorCode})`;
         
-        video.muted = muted;
-        if (autoPlay) {
-          video.play().catch(console.warn);
+        // Provide more user-friendly error messages
+        if (errorCode >= 6000 && errorCode < 7000) {
+          errorMessage = 'Network error - please check your connection';
+        } else if (errorCode >= 4000 && errorCode < 5000) {
+          errorMessage = 'Media format not supported';
+        } else if (errorCode >= 1000 && errorCode < 2000) {
+          errorMessage = 'DRM error - content may be protected';
         }
         
         setPlayerState(prev => ({ 
           ...prev, 
           isLoading: false, 
-          error: null,
-          availableQualities: levels,
-          currentQuality: hls.currentLevel,
-          isMuted: video.muted
+          error: errorMessage 
         }));
-      });
-
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (!isMountedRef.current || !data.fatal) return;
-        console.error('HLS Error:', data);
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        
-        setPlayerState(prev => ({ ...prev, isLoading: false, error: `Stream error: ${data.details}` }));
         destroyPlayer();
       });
-    } else {
-        initNativePlayer(url, video);
-    }
-  };
-  
-  const initShakaPlayer = async (url: string, video: HTMLVideoElement) => {
-    await loadScript('https://ajax.googleapis.com/ajax/libs/shaka-player/4.3.4/shaka-player.compiled.js', 'shaka-script');
-    const shaka = window.shaka;
-    shaka.polyfill.installAll();
 
-    if (!shaka.Player.isBrowserSupported()) {
-        throw new Error('This browser is not supported by Shaka Player.');
-    }
-    
-    const player = new shaka.Player(video);
-    shakaPlayerRef.current = player;
-    
-    // Custom URL parsing for non-standard DRM info
-    const urlParts = url.split('?|');
-    if (urlParts.length > 1) {
-        const params = new URLSearchParams(urlParts[1]);
-        const drmScheme = params.get('drmScheme');
-        const drmLicense = params.get('drmLicense');
-
-        if (drmScheme === 'clearkey' && drmLicense && drmLicense.includes(':')) {
-            const [keyId, key] = drmLicense.split(':');
-            player.configure({
-                drm: {
-                    clearKeys: { [keyId]: key }
-                }
-            });
-        }
-    }
-
-    player.addEventListener('error', (event: any) => {
-        console.error('Shaka Player Error:', event.detail);
-        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        setPlayerState(prev => ({ ...prev, isLoading: false, error: `Stream error: ${event.detail.code}` }));
-        destroyPlayer();
-    });
-
-    await player.load(url);
-    if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-    
-    const tracks = player.getVariantTracks();
-    const qualities: QualityLevel[] = tracks.map(track => ({
+      // Load the manifest
+      await player.load(url);
+      
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      
+      const tracks = player.getVariantTracks();
+      const qualities: QualityLevel[] = tracks.map(track => ({
         height: track.height || 0,
         bitrate: Math.round(track.bandwidth / 1000),
         id: track.id,
-    }));
-    
-    video.muted = muted;
-    if (autoPlay) {
+      }));
+      
+      video.muted = muted;
+      if (autoPlay) {
         video.play().catch(console.warn);
-    }
-    
-    setPlayerState(prev => ({
+      }
+      
+      setPlayerState(prev => ({
         ...prev,
         isLoading: false,
         error: null,
         availableQualities: qualities,
         currentQuality: -1, // -1 for auto
         isMuted: video.muted,
-    }));
-  };
-
-  const initNativePlayer = (url: string, video: HTMLVideoElement) => {
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = url;
-        const onLoadedMetadata = () => {
-            if (!isMountedRef.current) return;
-            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-            video.muted = muted;
-            if (autoPlay) video.play().catch(console.warn);
-            setPlayerState(prev => ({ ...prev, isLoading: false, error: null, isMuted: video.muted }));
-        };
-        video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
-        video.addEventListener('error', () => {
-            if (!isMountedRef.current) return;
-            setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load native stream' }));
-        }, { once: true });
-    } else {
-        throw new Error('HLS streams are not supported in this browser.');
+      }));
+      
+      console.log('Shaka player initialized successfully');
+      
+    } catch (error) {
+      console.error('Error initializing Shaka player:', error);
+      throw error;
     }
   };
 
-  // --- UI and Control Logic (largely unchanged) ---
+  const initNativePlayer = (url: string, video: HTMLVideoElement) => {
+    console.log('Initializing native player with URL:', url);
+    
+    // Check if the browser can play the content type
+    const canPlay = video.canPlayType('application/vnd.apple.mpegurl') ||
+                    video.canPlayType('video/mp4') ||
+                    video.canPlayType('video/webm');
+    
+    if (canPlay) {
+      video.src = url;
+      
+      const onLoadedMetadata = () => {
+        if (!isMountedRef.current) return;
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        video.muted = muted;
+        if (autoPlay) video.play().catch(console.warn);
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: null, 
+          isMuted: video.muted 
+        }));
+        console.log('Native player initialized successfully');
+      };
+      
+      const onError = () => {
+        if (!isMountedRef.current) return;
+        console.error('Native player error');
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: 'Failed to load stream with native player' 
+        }));
+      };
+      
+      video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      
+      // Cleanup function
+      return () => {
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+        video.removeEventListener('error', onError);
+      };
+    } else {
+      throw new Error('Media format not supported by this browser');
+    }
+  };
+
+  // --- UI and Control Logic ---
 
   const formatTime = (time: number): string => {
     if (!isFinite(time)) return "LIVE";
@@ -284,23 +485,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const changeQuality = useCallback((qualityId: number) => {
     if (playerTypeRef.current === 'hls' && hlsRef.current) {
-        hlsRef.current.currentLevel = qualityId; // qualityId is the index for HLS
+      hlsRef.current.currentLevel = qualityId;
     } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-        if (qualityId === -1) { // -1 for auto
-            shakaPlayerRef.current.configure({ abr: { enabled: true } });
-        } else {
-            shakaPlayerRef.current.configure({ abr: { enabled: false } });
-            shakaPlayerRef.current.selectVariantTrack(shakaPlayerRef.current.getVariantTracks().find((t: any) => t.id === qualityId), true);
+      if (qualityId === -1) {
+        shakaPlayerRef.current.configure({ abr: { enabled: true } });
+      } else {
+        shakaPlayerRef.current.configure({ abr: { enabled: false } });
+        const tracks = shakaPlayerRef.current.getVariantTracks();
+        const targetTrack = tracks.find((t: any) => t.id === qualityId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
         }
+      }
     }
     setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false }));
   }, []);
 
   const handleRetry = useCallback(() => {
+    console.log('Retrying stream initialization');
     initializePlayer();
   }, [initializePlayer]);
 
-  // --- Effects and Event Listeners (largely unchanged) ---
+  // --- Effects and Event Listeners ---
   
   useEffect(() => {
     isMountedRef.current = true;
@@ -321,21 +527,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleWaiting = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: true }));
     const handlePlaying = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isLoading: false }));
     const handleTimeUpdate = () => {
-        if (isMountedRef.current && video && !playerState.isSeeking) {
-            const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
-            setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration, buffered: buffered }));
-        }
+      if (isMountedRef.current && video && !playerState.isSeeking) {
+        const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+        setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration, buffered: buffered }));
+      }
     };
     const handleVolumeChange = () => isMountedRef.current && video && setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
     const handleEnterPip = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPipActive: true }));
     const handleLeavePip = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPipActive: false }));
     const handleFullscreenChange = () => {
-        if (isMountedRef.current) {
-            setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
-        }
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement }));
+      }
     };
     
-    // These listeners work universally as they are on the HTMLVideoElement
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
@@ -359,7 +564,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [playerState.isSeeking]);
 
-  // --- seeking logic, controls visibility, etc. (all unchanged) ---
+  // --- Seeking logic, controls visibility, etc. ---
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
@@ -473,7 +678,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [handleDragMove, handleDragEnd]);
   
-  // --- Render Logic (unchanged) ---
+  // --- Render Logic ---
 
   if (playerState.error && !playerState.isLoading) {
     return (
@@ -543,7 +748,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 Auto
               </button>
               {playerState.availableQualities.map((quality) => (
-                 <button
+                <button
                   key={quality.id}
                   onClick={() => changeQuality(quality.id)}
                   className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
@@ -650,7 +855,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 declare global {
   interface Window {
     Hls: any;
-    shaka: any; // Add Shaka Player to the window object
+    shaka: any;
   }
 }
 
