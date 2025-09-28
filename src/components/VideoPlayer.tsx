@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - Enhanced Version
+// /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
 
@@ -114,21 +114,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // --- Player Loading and Destruction ---
 
-  const loadScript = useCallback((src: string, id: string) => {
-    return new Promise<void>((resolve, reject) => {
-      if (document.getElementById(id)) {
-        resolve();
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = src;
-      script.id = id;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-      document.head.appendChild(script);
-    });
-  }, []);
-
   const destroyPlayer = useCallback(() => {
     if (hlsRef.current) {
       try {
@@ -210,13 +195,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     console.log('Initializing HLS player with URL:', url);
     
     try {
-      // Use local hls.js instead of CDN
       const Hls = (await import('hls.js')).default;
       
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({ 
           enableWorker: false,
-          debug: false,
+          debug: true,
           capLevelToPlayerSize: true,
           maxLoadingDelay: 4,
           maxBufferLength: 30,
@@ -250,7 +234,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             error: null,
             availableQualities: levels,
             currentQuality: hls.currentLevel,
-            isMuted: video.muted
+            isMuted: video.muted,
+            isPlaying: true
           }));
           
           console.log('HLS player initialized successfully');
@@ -285,11 +270,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         });
 
-        // Handle successful recovery
-        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-          console.log('HLS media attached successfully');
-        });
-
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Native HLS support (Safari)
         console.log('Using native HLS support');
@@ -307,17 +287,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     console.log('Initializing Shaka player with URL:', url);
     
     try {
-      // Use local shaka-player instead of CDN
-      const shaka = (await import('shaka-player/dist/shaka-player.ui.js')).default;
+      // Dynamically import shaka-player
+      const shaka = await import('shaka-player/dist/shaka-player.ui.js');
       
       // Install polyfills
-      shaka.polyfill.installAll();
+      shaka.default.polyfill.installAll();
 
-      if (!shaka.Player.isBrowserSupported()) {
+      if (!shaka.default.Player.isBrowserSupported()) {
         throw new Error('This browser is not supported by Shaka Player');
       }
       
-      const player = new shaka.Player(video);
+      // Destroy any existing player
+      if (shakaPlayerRef.current) {
+        await shakaPlayerRef.current.destroy();
+      }
+      
+      const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
       
       // Configure player
@@ -363,7 +348,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       // Error handling
-      player.addEventListener('error', (event: any) => {
+      const onError = (event: any) => {
         console.error('Shaka Player Error:', event.detail);
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         
@@ -385,7 +370,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           error: errorMessage 
         }));
         destroyPlayer();
-      });
+      };
+
+      player.addEventListener('error', onError);
 
       // Load the manifest
       await player.load(url);
@@ -416,6 +403,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       
       console.log('Shaka player initialized successfully');
       
+      // Cleanup function
+      return () => {
+        player.removeEventListener('error', onError);
+      };
+      
     } catch (error) {
       console.error('Error initializing Shaka player:', error);
       throw error;
@@ -442,7 +434,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ...prev, 
           isLoading: false, 
           error: null, 
-          isMuted: video.muted 
+          isMuted: video.muted,
+          isPlaying: true
         }));
         console.log('Native player initialized successfully');
       };
@@ -530,7 +523,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleTimeUpdate = () => {
       if (isMountedRef.current && video && !playerState.isSeeking) {
         const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
-        setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration, buffered: buffered }));
+        setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration || 0, buffered: buffered }));
       }
     };
     const handleVolumeChange = () => isMountedRef.current && video && setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
@@ -569,7 +562,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
-    if (!video || !progressBar || !isFinite(video.duration)) return null;
+    if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null;
     const rect = progressBar.getBoundingClientRect();
     const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width));
     const percentage = clickX / rect.width;
@@ -579,7 +572,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const video = videoRef.current;
-    if (!video || !isFinite(video.duration)) return;
+    if (!video || !isFinite(video.duration) || video.duration <= 0) return;
     wasPlayingBeforeSeekRef.current = !video.paused;
     dragStartRef.current = { isDragging: true };
     setPlayerState(prev => ({ ...prev, isSeeking: true }));
@@ -618,8 +611,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (video.paused) video.play().catch(console.error);
-    else video.pause();
+    
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (video.paused) {
+        shakaPlayerRef.current.play().catch(console.error);
+      } else {
+        shakaPlayerRef.current.pause();
+      }
+    } else {
+      if (video.paused) {
+        video.play().catch(console.error);
+      } else {
+        video.pause();
+      }
+    }
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -735,7 +740,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       >
         {/* Settings Menu */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48">
+          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48 z-10">
             <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
             <div className="space-y-1">
               <button
@@ -852,12 +857,5 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
-
-declare global {
-  interface Window {
-    Hls: any;
-    shaka: any;
-  }
-}
 
 export default VideoPlayer;
