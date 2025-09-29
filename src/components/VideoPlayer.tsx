@@ -1,6 +1,7 @@
 // /src/components/VideoPlayer.tsx - Complete Fixed Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, X } from 'lucide-react';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -13,7 +14,7 @@ interface VideoPlayerProps {
 interface QualityLevel {
   height: number;
   bitrate: number;
-  id: number; 
+  id: number;
 }
 
 interface SubtitleTrack {
@@ -62,7 +63,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     duration: 0,
     buffered: 0,
     showSettings: false,
-    showSubtitles: false,
     currentQuality: -1, 
     availableQualities: [] as QualityLevel[],
     availableSubtitles: [] as SubtitleTrack[],
@@ -80,7 +80,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let drmInfo = null;
     
     if (url.includes('?|')) {
-      const [baseUrl, drmParams] = url.split('?|');
+       const [baseUrl, drmParams] = url.split('?|');
       cleanUrl = baseUrl;
       
       // Parse DRM parameters
@@ -95,6 +95,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
+  
     
     // Detect stream type from clean URL
     const urlLower = cleanUrl.toLowerCase();
@@ -164,7 +165,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       error: null, 
       isPlaying: false, 
       showSettings: false,
-      showSubtitles: false,
       showControls: true 
     }));
 
@@ -549,7 +549,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setPlayerState(prev => ({ 
       ...prev, 
       currentSubtitle: subtitleId, 
-      showSubtitles: false, 
+      showSettings: false, 
       showControls: true 
     }));
     lastActivityRef.current = Date.now();
@@ -568,11 +568,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, CONTROLS_HIDE_DELAY);
-  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
   const resetControlsTimer = useCallback(() => {
     if (controlsTimeoutRef.current) {
@@ -582,14 +582,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setPlayerState(prev => ({ ...prev, showControls: true }));
     lastActivityRef.current = Date.now();
     
-    if (playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
+    if (playerState.isPlaying && !playerState.showSettings) {
       controlsTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
           setPlayerState(prev => ({ ...prev, showControls: false }));
         }
       }, CONTROLS_HIDE_DELAY);
     }
-  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
   // --- Effects and Event Listeners ---
   
@@ -807,11 +807,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const handlePlayerClick = useCallback((e: React.MouseEvent) => {
     // Prevent click when interacting with controls or menus
-    if (playerState.showSettings || playerState.showSubtitles) {
+    if (playerState.showSettings) {
       setPlayerState(prev => ({ 
         ...prev, 
         showSettings: false, 
-        showSubtitles: false,
         showControls: true 
       }));
       lastActivityRef.current = Date.now();
@@ -827,14 +826,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (newShowControls && playerState.isPlaying) {
       startControlsTimer();
     }
-  }, [playerState.showSettings, playerState.showSubtitles, playerState.showControls, playerState.isPlaying, startControlsTimer]);
+  }, [playerState.showSettings, playerState.showControls, playerState.isPlaying, startControlsTimer]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Only reset timer if not in settings/subtitle menus
-    if (!playerState.showSettings && !playerState.showSubtitles) {
+    if (!playerState.showSettings) {
       resetControlsTimer();
     }
-  }, [resetControlsTimer, playerState.showSettings, playerState.showSubtitles]);
+  }, [resetControlsTimer, playerState.showSettings]);
 
   useEffect(() => {
     document.addEventListener('mousemove', handleDragMove);
@@ -907,13 +906,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 e.stopPropagation(); 
                 setPlayerState(prev => ({ 
                   ...prev, 
-                  showSubtitles: !prev.showSubtitles,
-                  showSettings: false 
+                  showSettings: true,
                 })); 
               }}
-              className={`p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all ${
-                playerState.showSubtitles ? 'bg-blue-600' : ''
-              }`}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
               title="Subtitles"
             >
               <Subtitles size={18} />
@@ -927,118 +923,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 e.stopPropagation(); 
                 setPlayerState(prev => ({ 
                   ...prev, 
-                  showSettings: !prev.showSettings,
-                  showSubtitles: false 
+                  showSettings: true,
                 })); 
               }}
-              className={`p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all ${
-                playerState.showSettings ? 'bg-blue-600' : ''
-              }`}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
               title="Settings"
             >
               <Settings size={18} />
             </button>
           )}
         </div>
-
-        {/* Settings Menu */}
-        {playerState.showSettings && (
-          <div className="absolute top-16 right-4 bg-black/95 backdrop-blur-sm rounded-lg p-3 min-w-48 z-20 border border-white/20">
-            {playerState.availableQualities.length > 0 && (
-              <>
-                <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
-                <div className="space-y-1 mb-3">
-                  <button
-                    onClick={() => changeQuality(-1)}
-                    className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                      playerState.currentQuality === -1 
-                        ? 'bg-blue-600 text-white' 
-                        : 'text-gray-300 hover:bg-gray-700'
-                    }`}
-                  >
-                    Auto
-                  </button>
-                  {playerState.availableQualities.map((quality) => (
-                    <button
-                      key={quality.id}
-                      onClick={() => changeQuality(quality.id)}
-                      className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                        playerState.currentQuality === quality.id 
-                          ? 'bg-blue-600 text-white' 
-                          : 'text-gray-300 hover:bg-gray-700'
-                      }`}
-                    >
-                      {quality.height}p ({quality.bitrate} kbps)
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Audio Track Selection */}
-            <div className="text-white text-sm font-medium mb-2 px-2">Audio</div>
-            <div className="space-y-1 mb-3">
-              <button className="w-full text-left px-2 py-1.5 text-sm rounded bg-blue-600 text-white">
-                Default
-              </button>
-            </div>
-
-            {/* Playback Speed */}
-            <div className="text-white text-sm font-medium mb-2 px-2">Playback speed</div>
-            <div className="space-y-1">
-              {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
-                <button
-                  key={speed}
-                  onClick={() => {
-                    if (videoRef.current) {
-                      videoRef.current.playbackRate = speed;
-                    }
-                    setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
-                  }}
-                  className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                    videoRef.current?.playbackRate === speed 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  {speed === 1 ? 'Normal' : `${speed}x`}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Subtitle Menu */}
-        {playerState.showSubtitles && playerState.availableSubtitles.length > 0 && (
-          <div className="absolute top-16 right-4 bg-black/95 backdrop-blur-sm rounded-lg p-3 min-w-48 z-20 border border-white/20">
-            <div className="text-white text-sm font-medium mb-2 px-2">Subtitles</div>
-            <div className="space-y-1">
-              <button
-                onClick={() => changeSubtitle('')}
-                className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                  playerState.currentSubtitle === '' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'text-gray-300 hover:bg-gray-700'
-                }`}
-              >
-                Off
-              </button>
-              {playerState.availableSubtitles.map((subtitle) => (
-                <button
-                  key={subtitle.id}
-                  onClick={() => changeSubtitle(subtitle.id)}
-                  className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                    playerState.currentSubtitle === subtitle.id 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  {subtitle.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Play Button Overlay */}
         {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
@@ -1079,7 +973,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
           </div>
-          
+
           {/* Buttons and Time */}
           <div className="flex items-center gap-3">
             <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-white hover:text-blue-300 transition-colors p-2">
@@ -1114,6 +1008,116 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       </div>
+        
+      {/* Settings Drawer */}
+      <Drawer open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({...prev, showSettings: isOpen }))}>
+        <DrawerContent className="bg-black/90 border-t border-white/20 text-white outline-none">
+          <DrawerHeader>
+            <DrawerTitle className="text-center text-white">Settings</DrawerTitle>
+          </DrawerHeader>
+          <div className="p-4 space-y-6">
+            {/* Quality Selection */}
+            {playerState.availableQualities.length > 0 && (
+              <div>
+                <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => changeQuality(-1)}
+                    className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                      playerState.currentQuality === -1 
+                        ? 'bg-blue-600 text-white' 
+                        : 'text-gray-300 hover:bg-white/10'
+                    }`}
+                  >
+                    Auto
+                  </button>
+                  {playerState.availableQualities.map((quality) => (
+                    <button
+                      key={quality.id}
+                      onClick={() => changeQuality(quality.id)}
+                      className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                        playerState.currentQuality === quality.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'text-gray-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {quality.height}p ({quality.bitrate} kbps)
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Subtitle Selection */}
+            {playerState.availableSubtitles.length > 0 && (
+               <div>
+                 <div className="text-white text-sm font-medium mb-2 px-2">Subtitles</div>
+                 <div className="space-y-1">
+                   <button
+                     onClick={() => changeSubtitle('')}
+                     className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                       playerState.currentSubtitle === '' 
+                         ? 'bg-blue-600 text-white' 
+                         : 'text-gray-300 hover:bg-white/10'
+                     }`}
+                   >
+                     Off
+                   </button>
+                   {playerState.availableSubtitles.map((subtitle) => (
+                     <button
+                       key={subtitle.id}
+                       onClick={() => changeSubtitle(subtitle.id)}
+                       className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                         playerState.currentSubtitle === subtitle.id 
+                           ? 'bg-blue-600 text-white' 
+                           : 'text-gray-300 hover:bg-white/10'
+                       }`}
+                     >
+                       {subtitle.label}
+                     </button>
+                   ))}
+                 </div>
+               </div>
+             )}
+            
+            {/* Playback Speed */}
+            <div>
+              <div className="text-white text-sm font-medium mb-2 px-2">Playback speed</div>
+              <div className="space-y-1">
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                  <button
+                    key={speed}
+                    onClick={() => {
+                      if (videoRef.current) {
+                        videoRef.current.playbackRate = speed;
+                      }
+                      setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
+                    }}
+                    className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                      videoRef.current?.playbackRate === speed 
+                        ? 'bg-blue-600 text-white' 
+                        : 'text-gray-300 hover:bg-white/10'
+                    }`}
+                  >
+                    {speed === 1 ? 'Normal' : `${speed}x`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+             {/* Audio Track Selection */}
+             <div>
+              <div className="text-white text-sm font-medium mb-2 px-2">Audio</div>
+              <div className="space-y-1">
+                <button className="w-full text-left px-2 py-2 text-sm rounded bg-blue-600 text-white">
+                  Default
+                </button>
+              </div>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
     </div>
   );
 };
