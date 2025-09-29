@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - Updated for Live DVR Seeking
+// /src/components/VideoPlayer.tsx - Fixed Version
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
 import {
@@ -72,7 +72,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isSeeking: false,
     isPipActive: false,
     isLive: false,
-    isLiveDvr: false, // New: indicates if live stream supports DVR
   });
 
   // --- STREAM TYPE DETECTION ---
@@ -135,7 +134,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     
     destroyPlayer();
-    setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false, showControls: true, isLive: false, isLiveDvr: false, duration: 0, currentTime: 0 }));
+    setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false, showControls: true, isLive: false, duration: 0, currentTime: 0 }));
     
     loadingTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
@@ -188,10 +187,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         video.muted = muted;
         if (autoPlay) video.play().catch(console.warn);
         
-        // Check if live stream supports DVR (has duration)
+        // Always treat as seekable for now - many "live" streams support seeking
         const isLive = data.details.live;
-        const isLiveDvr = isLive && data.details.totalduration > 0;
-        const duration = isLiveDvr ? data.details.totalduration : (isLive ? 0 : video.duration);
+        const duration = data.details.totalduration > 0 ? data.details.totalduration : (isLive ? 0 : video.duration);
         
         setPlayerState(prev => ({ 
           ...prev, 
@@ -202,7 +200,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isMuted: video.muted, 
           isPlaying: !video.paused, 
           isLive, 
-          isLiveDvr,
           duration 
         }));
       });
@@ -272,12 +269,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         video.muted = muted;
         if (autoPlay) video.play().catch(console.warn);
         
-        // Check if live stream supports DVR
+        // Always treat as seekable for now - many "live" streams support seeking
         const isLive = player.isLive();
-        const manifest = player.getManifest();
-        const isLiveDvr = isLive && manifest && manifest.presentationTimeline && 
-                          manifest.presentationTimeline.getDuration() < Infinity;
-        const duration = isLiveDvr ? player.seekRange().end : (isLive ? 0 : video.duration);
+        let duration = 0;
+        try {
+          const seekRange = player.seekRange();
+          duration = seekRange.end - seekRange.start;
+        } catch (e) {
+          duration = isLive ? 0 : video.duration;
+        }
         
         setPlayerState(prev => ({ 
           ...prev, 
@@ -288,7 +288,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isMuted: video.muted, 
           isPlaying: !video.paused, 
           isLive, 
-          isLiveDvr,
           duration 
         }));
     } catch (error) {
@@ -305,7 +304,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
       const isLive = !isFinite(video.duration);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, isMuted: video.muted, isPlaying: !video.paused, isLive, isLiveDvr: false, duration: isLive ? 0 : video.duration }));
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, isMuted: video.muted, isPlaying: !video.paused, isLive, duration: isLive ? 0 : video.duration }));
     };
     video.addEventListener('canplay', onCanPlay, { once: true });
     video.addEventListener('error', () => {
@@ -336,14 +335,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [resetControlsTimer, playerState.showSettings]);
 
+  // FIXED: This now properly shows controls when clicking anywhere on the player
   const handlePlayerClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.controls-area')) return;
-    setPlayerState(prev => ({ ...prev, showControls: !prev.showControls }));
-  }, []);
+    // Only prevent controls toggle if clicking on actual controls
+    if (target.closest('.no-toggle-controls')) return;
+    
+    // Always show controls on player click
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    resetControlsTimer();
+  }, [resetControlsTimer]);
 
   // --- PLAYER ACTIONS ---
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback((e: React.MouseEvent) => {
+      e.stopPropagation();
       const video = videoRef.current;
       if (!video) return;
       if (video.paused) {
@@ -354,82 +359,89 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       resetControlsTimer();
   }, [resetControlsTimer]);
 
-  const toggleMute = useCallback(() => {
-    const video = videoRef.current;
-    if (video) {
-        video.muted = !video.muted;
-        resetControlsTimer();
-    }
+  const toggleMute = useCallback((e: React.MouseEvent) => {
+      e.stopPropagation();
+      const video = videoRef.current;
+      if (video) {
+          video.muted = !video.muted;
+          resetControlsTimer();
+      }
   }, [resetControlsTimer]);
 
-  const togglePip = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || !document.pictureInPictureEnabled) return;
-    try {
-      if (document.pictureInPictureElement) await document.exitPictureInPicture();
-      else await video.requestPictureInPicture();
-    } catch(error) { console.error("PiP failed:", error)}
+  const togglePip = useCallback(async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const video = videoRef.current;
+      if (!video || !document.pictureInPictureEnabled) return;
+      try {
+        if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        else await video.requestPictureInPicture();
+      } catch(error) { console.error("PiP failed:", error)}
   }, []);
 
-  const toggleFullscreen = useCallback(async () => {
-    const container = containerRef.current;
-    if (!container) return;
-    try {
-        if (!document.fullscreenElement) {
-            await container.requestFullscreen();
-            if (window.screen.orientation?.lock) {
-                await window.screen.orientation.lock('landscape').catch(err => console.warn("Could not lock orientation:", err));
-            }
-        } else {
-            await document.exitFullscreen();
-            if (window.screen.orientation?.unlock) {
-                window.screen.orientation.unlock();
-            }
-        }
-    } catch (error) {
-        console.error('Fullscreen API error:', error);
-        toast.error("Fullscreen not available on this device.");
-    }
+  const toggleFullscreen = useCallback(async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const container = containerRef.current;
+      if (!container) return;
+      try {
+          if (!document.fullscreenElement) {
+              await container.requestFullscreen();
+              if (window.screen.orientation?.lock) {
+                  await window.screen.orientation.lock('landscape').catch(err => console.warn("Could not lock orientation:", err));
+              }
+          } else {
+              await document.exitFullscreen();
+              if (window.screen.orientation?.unlock) {
+                  window.screen.orientation.unlock();
+              }
+          }
+      } catch (error) {
+          console.error('Fullscreen API error:', error);
+          toast.error("Fullscreen not available on this device.");
+      }
   }, []);
 
   // --- SEEKING LOGIC ---
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const progressBar = progressRef.current;
     const video = videoRef.current;
-    if (!progressBar || !video || (!playerState.isLiveDvr && playerState.isLive)) return null;
+    if (!progressBar || !video) return null;
     
     const rect = progressBar.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     
-    // For live DVR, calculate relative to seekable range
-    if (playerState.isLiveDvr && playerTypeRef.current === 'hls' && hlsRef.current) {
+    // For all content including "live" streams that support seeking
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
       const seekable = hlsRef.current.media.seekable;
       if (seekable.length > 0) {
         const startTime = seekable.start(0);
         const endTime = seekable.end(0);
         return startTime + pos * (endTime - startTime);
       }
-    } else if (playerState.isLiveDvr && playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-      const seekRange = shakaPlayerRef.current.seekRange();
-      return seekRange.start + pos * (seekRange.end - seekRange.start);
-    } else if (!playerState.isLive || playerState.isLiveDvr) {
-      // For regular VOD or live DVR
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      try {
+        const seekRange = shakaPlayerRef.current.seekRange();
+        return seekRange.start + pos * (seekRange.end - seekRange.start);
+      } catch (e) {
+        // Fallback to duration-based seeking
+        return pos * video.duration;
+      }
+    } else {
+      // Native video or fallback
       return pos * video.duration;
     }
     
     return null;
-  }, [playerState.isLive, playerState.isLiveDvr]);
+  }, []);
 
   const handleSeekStart = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const video = videoRef.current;
-    // Allow seeking for live DVR streams
-    if (!video || (playerState.isLive && !playerState.isLiveDvr)) return;
+    if (!video) return;
     wasPlayingBeforeSeekRef.current = !video.paused;
     dragStartRef.current = { isDragging: true };
     setPlayerState(prev => ({ ...prev, isSeeking: true }));
     video.pause();
-  }, [playerState.isLive, playerState.isLiveDvr]);
+  }, []);
 
   const handleSeekMove = useCallback((e: MouseEvent) => {
     if (!dragStartRef.current?.isDragging) return;
@@ -452,6 +464,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [resetControlsTimer]);
 
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
     const newTime = calculateNewTime(e.clientX);
     if (newTime !== null && videoRef.current) {
       videoRef.current.currentTime = newTime;
@@ -501,34 +514,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const formatLiveTime = (time: number, isLiveDvr: boolean): string => {
-    if (!isLiveDvr) return "LIVE";
-    
-    // For live DVR, show relative time from live edge
-    const video = videoRef.current;
-    if (!video) return "LIVE";
-    
-    let seekableEnd = 0;
-    if (playerTypeRef.current === 'hls' && hlsRef.current) {
-      const seekable = hlsRef.current.media.seekable;
-      if (seekable.length > 0) {
-        seekableEnd = seekable.end(seekable.length - 1);
-      }
-    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-      const seekRange = shakaPlayerRef.current.seekRange();
-      seekableEnd = seekRange.end;
-    } else {
-      seekableEnd = video.duration;
-    }
-    
-    const diff = seekableEnd - time;
-    if (diff < 1) return "LIVE";
-    
-    const minutes = Math.floor(diff / 60);
-    const seconds = Math.floor(diff % 60);
-    return `-${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
   const handleRetry = useCallback(() => {
     initializePlayer();
   }, [initializePlayer]);
@@ -562,16 +547,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         buffered = video.buffered.end(video.buffered.length - 1);
       }
       
-      // For live DVR, update duration if needed
-      if (playerState.isLiveDvr) {
-        if (playerTypeRef.current === 'hls' && hlsRef.current) {
-          const seekable = hlsRef.current.media.seekable;
-          if (seekable.length > 0) {
-            duration = seekable.end(seekable.length - 1);
-          }
-        } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      // Update duration for seekable content
+      if (playerTypeRef.current === 'hls' && hlsRef.current) {
+        const seekable = hlsRef.current.media.seekable;
+        if (seekable.length > 0) {
+          duration = seekable.end(seekable.length - 1) - seekable.start(0);
+        }
+      } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+        try {
           const seekRange = shakaPlayerRef.current.seekRange();
-          duration = seekRange.end;
+          duration = seekRange.end - seekRange.start;
+        } catch (e) {
+          // Keep existing duration
         }
       }
       
@@ -579,7 +566,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ...prev, 
         currentTime, 
         buffered, 
-        duration: playerState.isLive && !playerState.isLiveDvr ? 0 : duration 
+        duration: playerState.isLive && duration === 0 ? 0 : duration 
       }));
     };
     const handlePlay = () => isMountedRef.current && setPlayerState(prev => ({ ...prev, isPlaying: true }));
@@ -605,7 +592,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('volumechange', handleVolumeChange);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [playerState.isSeeking, playerState.isLive, playerState.isLiveDvr]);
+  }, [playerState.isSeeking, playerState.isLive]);
   
   useEffect(() => {
     document.addEventListener('mousemove', handleSeekMove);
@@ -626,68 +613,68 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [playerState.isPlaying, playerState.showControls, startControlsTimer]);
 
   // --- PERFORMANCE OPTIMIZATIONS ---
+  // FIXED: Always show seekbar for content that has duration or is seekable
   const isSeekable = useMemo(() => 
-    (!playerState.isLive || playerState.isLiveDvr) && 
-    (playerState.duration > 0 || (playerState.isLiveDvr && playerState.buffered > 0)) && 
-    isFinite(playerState.duration),
-    [playerState.isLive, playerState.isLiveDvr, playerState.duration, playerState.buffered]
+    (playerState.duration > 0 && isFinite(playerState.duration)) || 
+    (playerState.isLive && playerState.buffered > 0),
+    [playerState.duration, playerState.isLive, playerState.buffered]
   );
 
   const currentTimePercentage = useMemo(() => {
-    if (!isSeekable) return 0;
+    if (!isSeekable || playerState.duration <= 0) return 0;
     
-    // For live DVR, calculate percentage based on seekable range
-    if (playerState.isLiveDvr) {
-      let seekableStart = 0;
-      let seekableEnd = playerState.duration;
-      
-      if (playerTypeRef.current === 'hls' && hlsRef.current) {
-        const seekable = hlsRef.current.media.seekable;
-        if (seekable.length > 0) {
-          seekableStart = seekable.start(0);
-          seekableEnd = seekable.end(0);
+    // Calculate percentage based on actual seekable range
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
+      const seekable = hlsRef.current.media.seekable;
+      if (seekable.length > 0) {
+        const startTime = seekable.start(0);
+        const endTime = seekable.end(0);
+        if (endTime > startTime) {
+          return ((playerState.currentTime - startTime) / (endTime - startTime)) * 100;
         }
-      } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-        const seekRange = shakaPlayerRef.current.seekRange();
-        seekableStart = seekRange.start;
-        seekableEnd = seekRange.end;
       }
-      
-      if (seekableEnd > seekableStart) {
-        return ((playerState.currentTime - seekableStart) / (seekableEnd - seekableStart)) * 100;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      try {
+        const seekRange = shakaPlayerRef.current.seekRange();
+        if (seekRange.end > seekRange.start) {
+          return ((playerState.currentTime - seekRange.start) / (seekRange.end - seekRange.start)) * 100;
+        }
+      } catch (e) {
+        // Fallback to duration-based calculation
       }
     }
     
+    // Fallback to simple duration-based calculation
     return playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
-  }, [isSeekable, playerState.isLiveDvr, playerState.currentTime, playerState.duration]);
+  }, [isSeekable, playerState.currentTime, playerState.duration]);
 
   const bufferedPercentage = useMemo(() => {
-    if (!isSeekable) return 0;
+    if (!isSeekable || playerState.duration <= 0) return 0;
     
-    // For live DVR, calculate buffered percentage based on seekable range
-    if (playerState.isLiveDvr) {
-      let seekableStart = 0;
-      let seekableEnd = playerState.duration;
-      
-      if (playerTypeRef.current === 'hls' && hlsRef.current) {
-        const seekable = hlsRef.current.media.seekable;
-        if (seekable.length > 0) {
-          seekableStart = seekable.start(0);
-          seekableEnd = seekable.end(0);
+    // Calculate buffered percentage based on actual seekable range
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
+      const seekable = hlsRef.current.media.seekable;
+      if (seekable.length > 0) {
+        const startTime = seekable.start(0);
+        const endTime = seekable.end(0);
+        if (endTime > startTime && playerState.buffered > 0) {
+          return ((playerState.buffered - startTime) / (endTime - startTime)) * 100;
         }
-      } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-        const seekRange = shakaPlayerRef.current.seekRange();
-        seekableStart = seekRange.start;
-        seekableEnd = seekRange.end;
       }
-      
-      if (seekableEnd > seekableStart) {
-        return ((playerState.buffered - seekableStart) / (seekableEnd - seekableStart)) * 100;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      try {
+        const seekRange = shakaPlayerRef.current.seekRange();
+        if (seekRange.end > seekRange.start && playerState.buffered > 0) {
+          return ((playerState.buffered - seekRange.start) / (seekRange.end - seekRange.start)) * 100;
+        }
+      } catch (e) {
+        // Fallback to duration-based calculation
       }
     }
     
+    // Fallback to simple duration-based calculation
     return playerState.duration > 0 ? (playerState.buffered / playerState.duration) * 100 : 0;
-  }, [isSeekable, playerState.isLiveDvr, playerState.buffered, playerState.duration]);
+  }, [isSeekable, playerState.buffered, playerState.duration]);
 
   return (
     <div
@@ -730,8 +717,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <h3 className="text-white text-lg font-bold drop-shadow-md">{channelName}</h3>
             {(playerState.availableQualities.length > 0 || playerState.availableSubtitles.length > 0) && (
               <button 
-                onClick={() => setPlayerState(p => ({ ...p, showSettings: true }))}
-                className="p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-all"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPlayerState(p => ({ ...p, showSettings: true }));
+                }}
+                className="p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-all no-toggle-controls"
                 title="Settings"
               >
                 <Settings size={20} />
@@ -743,7 +733,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <button 
               onClick={togglePlay} 
-              className="pointer-events-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-all scale-100 hover:scale-110"
+              className="pointer-events-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-all scale-100 hover:scale-110 no-toggle-controls"
             >
               <Play size={36} fill="white" className="ml-1" />
             </button>
@@ -751,72 +741,54 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
 
         <div className="absolute bottom-0 left-0 right-0 p-4 space-y-2">
-          {/* Seek Bar - Always shown for seekable content including live DVR */}
-          {(isSeekable || playerState.isLiveDvr) && (
+          {/* Seek Bar - Always shown for content with duration or seekable ranges */}
+          <div 
+            ref={progressRef} 
+            className="relative h-1.5 bg-white/20 rounded-full group/seekbar cursor-pointer" 
+            onClick={handleProgressClick}
+          >
             <div 
-              ref={progressRef} 
-              className="relative h-1.5 bg-white/20 rounded-full group/seekbar cursor-pointer" 
-              onClick={handleProgressClick}
-            >
-              <div 
-                className="absolute h-full bg-white/40 rounded-full" 
-                style={{ width: `${bufferedPercentage}%` }} 
-              />
-              <div 
-                className="absolute h-full bg-red-500 rounded-full" 
-                style={{ width: `${currentTimePercentage}%` }} 
-              />
-              <div 
-                className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 transition-transform duration-150 ease-out group-hover/seekbar:scale-125" 
-                style={{ left: `${currentTimePercentage}%` }} 
-                onMouseDown={handleSeekStart} 
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
-          )}
+              className="absolute h-full bg-white/40 rounded-full" 
+              style={{ width: `${bufferedPercentage}%` }} 
+            />
+            <div 
+              className="absolute h-full bg-red-500 rounded-full" 
+              style={{ width: `${currentTimePercentage}%` }} 
+            />
+            <div 
+              className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 transition-transform duration-150 ease-out group-hover/seekbar:scale-125" 
+              style={{ left: `${currentTimePercentage}%` }} 
+              onMouseDown={handleSeekStart} 
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
           
           <div className="flex items-center gap-4 text-white">
             <button 
               onClick={togglePlay} 
-              className="hover:scale-110 transition-transform"
+              className="hover:scale-110 transition-transform no-toggle-controls"
             >
               {playerState.isPlaying ? <Pause size={24} /> : <Play size={24} />}
             </button>
             
             <button 
               onClick={toggleMute} 
-              className="hover:scale-110 transition-transform"
+              className="hover:scale-110 transition-transform no-toggle-controls"
             >
               {playerState.isMuted ? <VolumeX size={24} /> : <Volume2 size={24} />}
             </button>
             
-            {/* Show LIVE badge for true live streams, time for DVR */}
-            {playerState.isLive ? (
-              <div className="flex items-center gap-2">
-                {!playerState.isLiveDvr && (
-                  <>
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs font-semibold uppercase">LIVE</span>
-                  </>
-                )}
-                {playerState.isLiveDvr && (
-                  <div className="text-sm font-mono">
-                    {formatLiveTime(playerState.currentTime, playerState.isLiveDvr)}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-sm font-mono">
-                {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-              </div>
-            )}
+            {/* Show time for all content including "live" streams with seek capability */}
+            <div className="text-sm font-mono">
+              {formatTime(playerState.currentTime)}{playerState.duration > 0 ? ` / ${formatTime(playerState.duration)}` : ''}
+            </div>
             
             <div className="flex-grow"></div>
             
             {document.pictureInPictureEnabled && (
               <button 
                 onClick={togglePip} 
-                className="hover:scale-110 transition-transform" 
+                className="hover:scale-110 transition-transform no-toggle-controls" 
                 title="Picture-in-picture"
               >
                 <PictureInPicture2 size={20} />
@@ -825,7 +797,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             
             <button 
               onClick={toggleFullscreen} 
-              className="hover:scale-110 transition-transform" 
+              className="hover:scale-110 transition-transform no-toggle-controls" 
               title="Fullscreen"
             >
               {playerState.isFullscreen ? <Minimize size={22} /> : <Maximize size={22} />}
