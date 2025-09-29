@@ -1,4 +1,4 @@
-// /src/pages/Admin.tsx
+// /src/pages/Admin.tsx - With Stream Validation
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -6,10 +6,10 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy 
 import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Category, AdminChannel } from '@/types';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon, Tv, Users, BarChart3 } from 'lucide-react';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon, Tv, Users, BarChart3, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
 
-// Login Component
+// Admin Login Component
 const AdminLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -88,7 +88,7 @@ const AdminLogin = () => {
   );
 };
 
-// Categories Manager Component
+// Categories Manager Component with Validation
 const CategoriesManager = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -99,6 +99,7 @@ const CategoriesManager = () => {
     m3uUrl: '' 
   });
   const [loading, setLoading] = useState(false);
+  const [validationStatus, setValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
 
   // Helper function to generate slug from name
   const generateSlug = (name: string): string => {
@@ -134,14 +135,36 @@ const CategoriesManager = () => {
   };
 
   const validateM3UUrl = async (url: string): Promise<boolean> => {
-    if (!url) return true; // Empty URL is valid (optional field)
+    if (!url) {
+      setValidationStatus('idle');
+      return true; // Empty URL is valid (optional field)
+    }
     
+    // Basic URL format check
+    if (!url.toLowerCase().includes('.m3u8') && !url.toLowerCase().includes('.m3u')) {
+      setValidationStatus('invalid');
+      toast.warning("URL may not be a valid M3U playlist.", {
+        description: "Expected .m3u or .m3u8 extension",
+      });
+      return true; // Don't block saving, just warn
+    }
+    
+    setValidationStatus('validating');
     try {
-      const response = await fetch(url, { method: 'HEAD' });
-      return response.ok;
-    } catch {
+      // Using a simple HEAD request to check availability
+      const response = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
+      // no-cors means we can't read the status, but if it doesn't throw, the endpoint is likely reachable
+      setValidationStatus('valid');
+      return true;
+    } catch (error) {
+      console.error("URL validation error:", error);
+      setValidationStatus('invalid');
       return false;
     }
+  };
+
+  const handleUrlBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    validateM3UUrl(e.target.value);
   };
 
   const handleSaveCategory = async () => {
@@ -220,6 +243,7 @@ const CategoriesManager = () => {
       iconUrl: category.iconUrl || '',
       m3uUrl: category.m3uUrl || '',
     });
+    setValidationStatus('idle');
   };
 
   const handleDeleteCategory = async (id: string) => {
@@ -242,6 +266,7 @@ const CategoriesManager = () => {
   const resetForm = () => {
     setNewCategory({ name: '', slug: '', iconUrl: '', m3uUrl: '' });
     setEditingCategory(null);
+    setValidationStatus('idle');
   };
 
   const handleNameChange = (name: string) => {
@@ -301,7 +326,7 @@ const CategoriesManager = () => {
               disabled={loading}
             />
           </div>
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium mb-2">
               M3U Playlist URL (Optional)
               <LinkIcon size={14} className="inline ml-1 text-green-500" />
@@ -309,11 +334,20 @@ const CategoriesManager = () => {
             <input
               type="url"
               value={newCategory.m3uUrl}
-              onChange={(e) => setNewCategory({ ...newCategory, m3uUrl: e.target.value })}
+              onChange={(e) => {
+                setNewCategory({ ...newCategory, m3uUrl: e.target.value });
+                setValidationStatus('idle');
+              }}
+              onBlur={handleUrlBlur}
               placeholder="https://example.com/playlist.m3u"
-              className="form-input"
+              className="form-input pr-10"
               disabled={loading}
             />
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              {validationStatus === 'validating' && <Loader2 className="h-5 w-5 animate-spin text-gray-400" />}
+              {validationStatus === 'valid' && <CheckCircle className="h-5 w-5 text-green-500" />}
+              {validationStatus === 'invalid' && <XCircle className="h-5 w-5 text-red-500" />}
+            </div>
             <p className="text-xs text-text-secondary mt-1">
               Paste your M3U playlist URL here. All channels will be automatically imported.
             </p>
@@ -417,7 +451,7 @@ const CategoriesManager = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                                    <button
+                  <button
                     onClick={() => handleEditCategory(category)}
                     className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
                     title="Edit category"
@@ -441,7 +475,7 @@ const CategoriesManager = () => {
   );
 };
 
-// Channels Manager Component
+// Channels Manager Component with Validation
 const ChannelsManager = () => {
   const [channels, setChannels] = useState<AdminChannel[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -454,6 +488,7 @@ const ChannelsManager = () => {
     authCookie: '',
   });
   const [loading, setLoading] = useState(false);
+  const [streamValidationStatus, setStreamValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
 
   useEffect(() => {
     fetchChannels();
@@ -496,19 +531,45 @@ const ChannelsManager = () => {
     }
   };
 
+  const validateStreamUrl = async (url: string): Promise<boolean> => {
+    if (!url) {
+      setStreamValidationStatus('idle');
+      return true;
+    }
+    
+    // Basic URL format check
+    if (!url.toLowerCase().includes('.m3u8') && !url.toLowerCase().includes('.mp4')) {
+      setStreamValidationStatus('invalid');
+      toast.warning("URL may not be a valid stream format.", {
+        description: "Expected .m3u8 or .mp4 extension",
+      });
+      return true; // Don't block saving, just warn
+    }
+    
+    setStreamValidationStatus('validating');
+    try {
+      // Using a simple HEAD request to check availability
+      const response = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
+      // no-cors means we can't read the status, but if it doesn't throw, the endpoint is likely reachable
+      setStreamValidationStatus('valid');
+      return true;
+    } catch (error) {
+      console.error("Stream URL validation error:", error);
+      setStreamValidationStatus('invalid');
+      return false;
+    }
+  };
+
+  const handleStreamUrlBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    validateStreamUrl(e.target.value);
+  };
+
   const handleSaveChannel = async () => {
     if (!newChannel.name.trim() || !newChannel.streamUrl.trim() || !newChannel.categoryId) {
       toast.error("Validation Error", {
         description: "Please fill in all required fields (Name, Stream URL, Category)",
       });
       return;
-    }
-    
-    // Validate stream URL
-    if (!newChannel.streamUrl.includes('m3u8') && !newChannel.streamUrl.includes('mp4')) {
-      if (!confirm('Stream URL does not appear to be a valid video format. Continue anyway?')) {
-        return;
-      }
     }
     
     setLoading(true);
@@ -565,6 +626,7 @@ const ChannelsManager = () => {
       categoryId: channel.categoryId,
       authCookie: channel.authCookie || '',
     });
+    setStreamValidationStatus('idle');
   };
 
   const handleDeleteChannel = async (id: string) => {
@@ -587,6 +649,7 @@ const ChannelsManager = () => {
   const resetForm = () => {
     setNewChannel({ name: '', logoUrl: '', streamUrl: '', categoryId: '', authCookie: '' });
     setEditingChannel(null);
+    setStreamValidationStatus('idle');
   };
 
   return (
@@ -626,16 +689,25 @@ const ChannelsManager = () => {
               disabled={loading}
             />
           </div>
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium mb-2">Stream URL (m3u8/mp4) *</label>
             <input
               type="url"
               value={newChannel.streamUrl}
-              onChange={(e) => setNewChannel({ ...newChannel, streamUrl: e.target.value })}
+              onChange={(e) => {
+                setNewChannel({ ...newChannel, streamUrl: e.target.value });
+                setStreamValidationStatus('idle');
+              }}
+              onBlur={handleStreamUrlBlur}
               placeholder="https://example.com/stream.m3u8"
-              className="form-input"
+              className="form-input pr-10"
               disabled={loading}
             />
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+              {streamValidationStatus === 'validating' && <Loader2 className="h-5 w-5 animate-spin text-gray-400" />}
+              {streamValidationStatus === 'valid' && <CheckCircle className="h-5 w-5 text-green-500" />}
+              {streamValidationStatus === 'invalid' && <XCircle className="h-5 w-5 text-red-500" />}
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium mb-2">Category *</label>
@@ -840,7 +912,7 @@ const AdminDashboard = () => {
         </div>
       </header>
 
-            <div className="max-w-7xl mx-auto p-4">
+      <div className="max-w-7xl mx-auto p-4">
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar Navigation */}
           <div className="lg:w-64 flex-shrink-0">
@@ -1057,8 +1129,8 @@ const Admin = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="loading-spinner mx-auto mb-4"></div>
-          <p className="text-text-secondary">Loading admin panel...</p>
+          <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-accent" />
+          <p className="text-text-secondary">Loading Admin Panel...</p>
         </div>
       </div>
     );
