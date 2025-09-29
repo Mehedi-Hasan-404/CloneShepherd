@@ -1,6 +1,6 @@
-// /src/components/VideoPlayer.tsx - Final Fixed Version
+// /src/components/VideoPlayer.tsx - Complete Fixed Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2 } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -16,8 +16,14 @@ interface QualityLevel {
   id: number; 
 }
 
-const PLAYER_LOAD_TIMEOUT = 20000; // 20 seconds for faster loading
-const CONTROLS_HIDE_DELAY = 3000; // 3 seconds
+interface SubtitleTrack {
+  id: string;
+  label: string;
+  language: string;
+}
+
+const PLAYER_LOAD_TIMEOUT = 15000; // Faster loading timeout
+const CONTROLS_HIDE_DELAY = 4000; // 4 seconds
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
   streamUrl,
@@ -56,8 +62,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     duration: 0,
     buffered: 0,
     showSettings: false,
+    showSubtitles: false,
     currentQuality: -1, 
     availableQualities: [] as QualityLevel[],
+    availableSubtitles: [] as SubtitleTrack[],
+    currentSubtitle: '',
     isSeeking: false,
     isPipActive: false,
   });
@@ -149,7 +158,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const video = videoRef.current;
     destroyPlayer();
-    setPlayerState(prev => ({ ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false, showControls: true }));
+    setPlayerState(prev => ({ 
+      ...prev, 
+      isLoading: true, 
+      error: null, 
+      isPlaying: false, 
+      showSettings: false,
+      showSubtitles: false,
+      showControls: true 
+    }));
 
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
@@ -171,7 +188,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         console.log('DRM info:', drmInfo);
       }
 
-      // Initialize appropriate player
+      // Initialize appropriate player with faster startup
       if (type === 'dash') {
         playerTypeRef.current = 'shaka';
         await initShakaPlayer(cleanUrl, video, drmInfo);
@@ -204,13 +221,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           enableWorker: true,
           debug: false,
           capLevelToPlayerSize: true,
-          maxLoadingDelay: 2,
-          maxBufferLength: 20,
-          maxBufferSize: 30 * 1000 * 1000,
-          fragLoadingTimeOut: 10000,
-          manifestLoadingTimeOut: 5000,
-          startLevel: -1, // Auto start level
-          startPosition: -1, // Start from beginning
+          maxLoadingDelay: 1,
+          maxBufferLength: 15,
+          maxBufferSize: 20 * 1000 * 1000,
+          fragLoadingTimeOut: 8000,
+          manifestLoadingTimeOut: 4000,
+          startLevel: -1,
+          startPosition: -1,
         });
         hlsRef.current = hls;
 
@@ -244,8 +261,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }));
           
           console.log('HLS player initialized successfully');
-          
-          // Start controls auto-hide timer
           startControlsTimer();
         });
 
@@ -311,28 +326,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
       
-      // Configure player for faster loading
+      // Optimized configuration for faster loading
       player.configure({
         streaming: {
-          bufferingGoal: 20,
-          rebufferingGoal: 10,
-          bufferBehind: 20,
+          bufferingGoal: 15,
+          rebufferingGoal: 8,
+          bufferBehind: 15,
           retryParameters: {
-            timeout: 5000,
+            timeout: 4000,
             maxAttempts: 2,
-            baseDelay: 500,
-            backoffFactor: 1.5,
-            fuzzFactor: 0.3
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2
           },
           useNativeHlsOnSafari: true,
         },
         manifest: {
           retryParameters: {
-            timeout: 5000,
+            timeout: 4000,
             maxAttempts: 2,
-            baseDelay: 500,
-            backoffFactor: 1.5,
-            fuzzFactor: 0.3
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2
           },
           dash: {
             clockSyncUri: ''
@@ -340,9 +355,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         },
        abr: {
           enabled: true,
-          defaultBandwidthEstimate: 1000000,
-          bandwidthUpgradeSeconds: 4,
-          bandwidthDowngradeSeconds: 8,
+          defaultBandwidthEstimate: 1500000,
+          bandwidthUpgradeSeconds: 3,
+          bandwidthDowngradeSeconds: 6,
         }
       });
 
@@ -389,20 +404,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       player.addEventListener('error', onError);
 
-      // State change handlers for Shaka player
-      const onShakaStateChange = () => {
-        if (!isMountedRef.current || !video) return;
-        setPlayerState(prev => ({
-          ...prev,
-          isPlaying: !video.paused,
-          isMuted: video.muted
-        }));
-      };
-
-      video.addEventListener('play', onShakaStateChange);
-      video.addEventListener('pause', onShakaStateChange);
-      video.addEventListener('volumechange', onShakaStateChange);
-
       // Load the manifest
       await player.load(url);
       
@@ -413,6 +414,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         height: track.height || 0,
         bitrate: Math.round(track.bandwidth / 1000),
         id: track.id,
+      }));
+
+      // Get subtitle tracks
+      const textTracks = player.getTextTracks();
+      const subtitles: SubtitleTrack[] = textTracks.map(track => ({
+        id: track.id.toString(),
+        label: track.label || track.language || 'Unknown',
+        language: track.language || 'unknown'
       }));
       
       video.muted = muted;
@@ -425,23 +434,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isLoading: false,
         error: null,
         availableQualities: qualities,
-        currentQuality: -1, // -1 for auto
+        availableSubtitles: subtitles,
+        currentQuality: -1,
         isMuted: video.muted,
         isPlaying: true,
         showControls: true
       }));
       
       console.log('Shaka player initialized successfully');
-      
-      // Start controls auto-hide timer
       startControlsTimer();
       
-      // Cleanup function
       return () => {
         player.removeEventListener('error', onError);
-        video.removeEventListener('play', onShakaStateChange);
-        video.removeEventListener('pause', onShakaStateChange);
-        video.removeEventListener('volumechange', onShakaStateChange);
       };
       
     } catch (error) {
@@ -469,8 +473,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         showControls: true
       }));
       console.log('Native player initialized successfully');
-      
-      // Start controls auto-hide timer
       startControlsTimer();
     };
     
@@ -488,7 +490,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
     video.addEventListener('error', onError, { once: true });
     
-    // Cleanup function
     return () => {
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('error', onError);
@@ -523,7 +524,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
-    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false, showControls: true }));
+    setPlayerState(prev => ({ 
+      ...prev, 
+      currentQuality: qualityId, 
+      showSettings: false, 
+      showControls: true 
+    }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const changeSubtitle = useCallback((subtitleId: string) => {
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (subtitleId === '') {
+        shakaPlayerRef.current.setTextTrackVisibility(false);
+      } else {
+        const tracks = shakaPlayerRef.current.getTextTracks();
+        const targetTrack = tracks.find((t: any) => t.id.toString() === subtitleId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectTextTrack(targetTrack);
+          shakaPlayerRef.current.setTextTrackVisibility(true);
+        }
+      }
+    }
+    setPlayerState(prev => ({ 
+      ...prev, 
+      currentSubtitle: subtitleId, 
+      showSubtitles: false, 
+      showControls: true 
+    }));
     lastActivityRef.current = Date.now();
   }, []);
 
@@ -540,11 +568,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
     
     controlsTimeoutRef.current = setTimeout(() => {
-      if (isMountedRef.current && playerState.isPlaying) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, CONTROLS_HIDE_DELAY);
-  }, [playerState.isPlaying]);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
 
   const resetControlsTimer = useCallback(() => {
     if (controlsTimeoutRef.current) {
@@ -554,14 +582,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setPlayerState(prev => ({ ...prev, showControls: true }));
     lastActivityRef.current = Date.now();
     
-    if (playerState.isPlaying) {
+    if (playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
       controlsTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
           setPlayerState(prev => ({ ...prev, showControls: false }));
         }
       }, CONTROLS_HIDE_DELAY);
     }
-  }, [playerState.isPlaying]);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
 
   // --- Effects and Event Listeners ---
   
@@ -633,7 +661,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const isFullscreen = !!document.fullscreenElement;
       setPlayerState(prev => ({ ...prev, isFullscreen }));
       
-      // Reset controls visibility on fullscreen change
       if (isFullscreen) {
         resetControlsTimer();
       }
@@ -760,18 +787,801 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     } catch (error) {
       console.warn('Fullscreen error:', error);
-      // Fallback to landscape orientation for mobile
-      if ('screen' in window && 'orientation' in window.screen) {
-        try {
-          // @ts-ignore
-          if (window.screen.orientation.lock) {
-            // @ts-ignore
-            window.screen.orientation.lock('landscape').catch(console.warn);
-          }
-        } catch (e) {
-          console.warn('Orientation lock not supported');
+    }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+  
+  // /src/components/VideoPlayer.tsx - Complete Fixed Version
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
+
+interface VideoPlayerProps {
+  streamUrl: string;
+  channelName: string;
+  autoPlay?: boolean;
+  muted?: boolean;
+  className?: string;
+}
+
+interface QualityLevel {
+  height: number;
+  bitrate: number;
+  id: number; 
+}
+
+interface SubtitleTrack {
+  id: string;
+  label: string;
+  language: string;
+}
+
+const PLAYER_LOAD_TIMEOUT = 15000; // Faster loading timeout
+const CONTROLS_HIDE_DELAY = 4000; // 4 seconds
+
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  streamUrl,
+  channelName,
+  autoPlay = true,
+  muted = true,
+  className = ""
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Refs for different player instances
+  const hlsRef = useRef<any>(null);
+  const shakaPlayerRef = useRef<any>(null);
+  const playerTypeRef = useRef<'hls' | 'shaka' | 'native' | null>(null);
+
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+  const progressRef = useRef<HTMLDivElement>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
+  // Refs for robust seeking logic
+  const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
+  const wasPlayingBeforeSeekRef = useRef(false);
+  const seekTimeRef = useRef(0);
+
+  const [playerState, setPlayerState] = useState({
+    isPlaying: false,
+    isMuted: muted,
+    isLoading: true,
+    error: null as string | null,
+    isFullscreen: false,
+    showControls: true,
+    currentTime: 0,
+    duration: 0,
+    buffered: 0,
+    showSettings: false,
+    showSubtitles: false,
+    currentQuality: -1, 
+    availableQualities: [] as QualityLevel[],
+    availableSubtitles: [] as SubtitleTrack[],
+    currentSubtitle: '',
+    isSeeking: false,
+    isPipActive: false,
+  });
+
+  // Enhanced stream type detection
+  const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
+    console.log('Detecting stream type for:', url);
+    
+    // Handle custom DRM format with ?| separator
+    let cleanUrl = url;
+    let drmInfo = null;
+    
+    if (url.includes('?|')) {
+      const [baseUrl, drmParams] = url.split('?|');
+      cleanUrl = baseUrl;
+      
+      // Parse DRM parameters
+      if (drmParams) {
+        const params = new URLSearchParams(drmParams);
+        const drmScheme = params.get('drmScheme');
+        const drmLicense = params.get('drmLicense');
+        
+        if (drmScheme && drmLicense) {
+          drmInfo = { scheme: drmScheme, license: drmLicense };
+          console.log('DRM detected:', drmInfo);
         }
       }
+    }
+    
+    // Detect stream type from clean URL
+    const urlLower = cleanUrl.toLowerCase();
+    
+    // DASH detection
+    if (urlLower.includes('.mpd') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
+      return { type: 'dash', cleanUrl, drmInfo };
+    }
+    
+    // HLS detection
+    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/') || urlLower.includes('hls')) {
+      return { type: 'hls', cleanUrl, drmInfo };
+    }
+    
+    // MP4 and other native formats
+    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
+      return { type: 'native', cleanUrl, drmInfo };
+    }
+    
+    // Default fallback based on content hints
+    if (urlLower.includes('manifest') || drmInfo) {
+      return { type: 'dash', cleanUrl, drmInfo }; // Often DASH manifests
+    }
+    
+    // Final fallback - try HLS first as it's more common
+    return { type: 'hls', cleanUrl, drmInfo };
+  }, []);
+
+  // --- Player Loading and Destruction ---
+
+  const destroyPlayer = useCallback(() => {
+    if (hlsRef.current) {
+      try {
+        hlsRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS player:', e);
+      }
+      hlsRef.current = null;
+    }
+    if (shakaPlayerRef.current) {
+      try {
+        shakaPlayerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying Shaka player:', e);
+      }
+      shakaPlayerRef.current = null;
+    }
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+    }
+    playerTypeRef.current = null;
+  }, []);
+
+  // --- Player Initialization Logic ---
+
+  const initializePlayer = useCallback(async () => {
+    if (!streamUrl || !videoRef.current) {
+      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
+      return;
+    }
+
+    const video = videoRef.current;
+    destroyPlayer();
+    setPlayerState(prev => ({ 
+      ...prev, 
+      isLoading: true, 
+      error: null, 
+      isPlaying: false, 
+      showSettings: false,
+      showSubtitles: false,
+      showControls: true 
+    }));
+
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: "Stream took too long to load. Please try again.",
+        }));
+        destroyPlayer();
+      }
+    }, PLAYER_LOAD_TIMEOUT);
+
+    try {
+      // Enhanced stream type detection
+      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+      console.log(`Detected stream type: ${type}, Clean URL: ${cleanUrl}`);
+      
+      if (drmInfo) {
+        console.log('DRM info:', drmInfo);
+      }
+
+      // Initialize appropriate player with faster startup
+      if (type === 'dash') {
+        playerTypeRef.current = 'shaka';
+        await initShakaPlayer(cleanUrl, video, drmInfo);
+      } else if (type === 'hls') {
+        playerTypeRef.current = 'hls';
+        await initHlsPlayer(cleanUrl, video);
+      } else {
+        playerTypeRef.current = 'native';
+        initNativePlayer(cleanUrl, video);
+      }
+    } catch (error) {
+      console.error('Player initialization error:', error);
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to initialize player'
+      }));
+    }
+  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
+
+  const initHlsPlayer = async (url: string, video: HTMLVideoElement) => {
+    console.log('Initializing HLS player with URL:', url);
+    
+    try {
+      const Hls = (await import('hls.js')).default;
+      
+      if (Hls && Hls.isSupported()) {
+        const hls = new Hls({ 
+          enableWorker: true,
+          debug: false,
+          capLevelToPlayerSize: true,
+          maxLoadingDelay: 1,
+          maxBufferLength: 15,
+          maxBufferSize: 20 * 1000 * 1000,
+          fragLoadingTimeOut: 8000,
+          manifestLoadingTimeOut: 4000,
+          startLevel: -1,
+          startPosition: -1,
+        });
+        hlsRef.current = hls;
+
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+          
+          const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({
+            height: level.height || 0,
+            bitrate: Math.round(level.bitrate / 1000),
+            id: index,
+          }));
+          
+          video.muted = muted;
+          if (autoPlay) {
+            video.play().catch(console.warn);
+          }
+          
+          setPlayerState(prev => ({ 
+            ...prev, 
+            isLoading: false, 
+            error: null,
+            availableQualities: levels,
+            currentQuality: hls.currentLevel,
+            isMuted: video.muted,
+            isPlaying: true,
+            showControls: true
+          }));
+          
+          console.log('HLS player initialized successfully');
+          startControlsTimer();
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isMountedRef.current) return;
+          console.error('HLS Error:', data);
+          
+          if (data.fatal) {
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('Network error, trying to recover...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('Media error, trying to recover...');
+                hls.recoverMediaError();
+                break;
+              default:
+                setPlayerState(prev => ({ 
+                  ...prev, 
+                  isLoading: false, 
+                  error: `HLS Error: ${data.details}` 
+                }));
+                destroyPlayer();
+                break;
+            }
+          }
+        });
+
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        console.log('Using native HLS support');
+        initNativePlayer(url, video);
+      } else {
+        throw new Error('HLS is not supported in this browser');
+      }
+    } catch (error) {
+      console.error('Error initializing HLS player:', error);
+      throw error;
+    }
+  };
+  
+  const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
+    console.log('Initializing Shaka player with URL:', url);
+    
+    try {
+      // Dynamically import shaka-player
+      const shaka = await import('shaka-player/dist/shaka-player.ui.js');
+      
+      // Install polyfills
+      shaka.default.polyfill.installAll();
+
+      if (!shaka.default.Player.isBrowserSupported()) {
+        throw new Error('This browser is not supported by Shaka Player');
+      }
+      
+      // Destroy any existing player
+      if (shakaPlayerRef.current) {
+        await shakaPlayerRef.current.destroy();
+      }
+      
+      const player = new shaka.default.Player(video);
+      shakaPlayerRef.current = player;
+      
+      // Optimized configuration for faster loading
+      player.configure({
+        streaming: {
+          bufferingGoal: 15,
+          rebufferingGoal: 8,
+          bufferBehind: 15,
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2
+          },
+          useNativeHlsOnSafari: true,
+        },
+        manifest: {
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2
+          },
+          dash: {
+            clockSyncUri: ''
+          }
+        },
+       abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 1500000,
+          bandwidthUpgradeSeconds: 3,
+          bandwidthDowngradeSeconds: 6,
+        }
+      });
+
+      // Handle DRM if present
+      if (drmInfo) {
+        console.log('Configuring DRM:', drmInfo);
+        
+        if (drmInfo.scheme === 'clearkey' && drmInfo.license) {
+          if (drmInfo.license.includes(':')) {
+            const [keyId, key] = drmInfo.license.split(':');
+            player.configure({
+              drm: {
+                clearKeys: { [keyId]: key }
+              }
+            });
+            console.log('ClearKey DRM configured');
+          }
+        }
+      }
+
+      // Error handling
+      const onError = (event: any) => {
+        console.error('Shaka Player Error:', event.detail);
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        
+        const errorCode = event.detail.code;
+        let errorMessage = `Stream error (${errorCode})`;
+        
+        if (errorCode >= 6000 && errorCode < 7000) {
+          errorMessage = 'Network error - please check your connection';
+        } else if (errorCode >= 4000 && errorCode < 5000) {
+          errorMessage = 'Media format not supported';
+        } else if (errorCode >= 1000 && errorCode < 2000) {
+          errorMessage = 'DRM error - content may be protected';
+        }
+        
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: errorMessage 
+        }));
+        destroyPlayer();
+      };
+
+      player.addEventListener('error', onError);
+
+      // Load the manifest
+      await player.load(url);
+      
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      
+      const tracks = player.getVariantTracks();
+      const qualities: QualityLevel[] = tracks.map(track => ({
+        height: track.height || 0,
+        bitrate: Math.round(track.bandwidth / 1000),
+        id: track.id,
+      }));
+
+      // Get subtitle tracks
+      const textTracks = player.getTextTracks();
+      const subtitles: SubtitleTrack[] = textTracks.map(track => ({
+        id: track.id.toString(),
+        label: track.label || track.language || 'Unknown',
+        language: track.language || 'unknown'
+      }));
+      
+      video.muted = muted;
+      if (autoPlay) {
+        video.play().catch(console.warn);
+      }
+      
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: null,
+        availableQualities: qualities,
+        availableSubtitles: subtitles,
+        currentQuality: -1,
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+      
+      console.log('Shaka player initialized successfully');
+      startControlsTimer();
+      
+      return () => {
+        player.removeEventListener('error', onError);
+      };
+      
+    } catch (error) {
+      console.error('Error initializing Shaka player:', error);
+      throw error;
+    }
+  };
+
+  const initNativePlayer = (url: string, video: HTMLVideoElement) => {
+    console.log('Initializing native player with URL:', url);
+    
+    video.src = url;
+    
+    const onLoadedMetadata = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      video.muted = muted;
+      if (autoPlay) video.play().catch(console.warn);
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: null, 
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+      console.log('Native player initialized successfully');
+      startControlsTimer();
+    };
+    
+    const onError = () => {
+      if (!isMountedRef.current) return;
+      console.error('Native player error');
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Failed to load stream with native player' 
+      }));
+    };
+    
+    video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+    video.addEventListener('error', onError, { once: true });
+    
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('error', onError);
+    };
+  };
+
+  // --- UI and Control Logic ---
+
+  const formatTime = (time: number): string => {
+    if (!isFinite(time) || time <= 0) return "0:00";
+    const hours = Math.floor(time / 3600);
+    const minutes = Math.floor((time % 3600) / 60);
+    const seconds = Math.floor(time % 60);
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const changeQuality = useCallback((qualityId: number) => {
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
+      hlsRef.current.currentLevel = qualityId;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (qualityId === -1) {
+        shakaPlayerRef.current.configure({ abr: { enabled: true } });
+      } else {
+        shakaPlayerRef.current.configure({ abr: { enabled: false } });
+        const tracks = shakaPlayerRef.current.getVariantTracks();
+        const targetTrack = tracks.find((t: any) => t.id === qualityId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
+        }
+      }
+    }
+    setPlayerState(prev => ({ 
+      ...prev, 
+      currentQuality: qualityId, 
+      showSettings: false, 
+      showControls: true 
+    }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const changeSubtitle = useCallback((subtitleId: string) => {
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (subtitleId === '') {
+        shakaPlayerRef.current.setTextTrackVisibility(false);
+      } else {
+        const tracks = shakaPlayerRef.current.getTextTracks();
+        const targetTrack = tracks.find((t: any) => t.id.toString() === subtitleId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectTextTrack(targetTrack);
+          shakaPlayerRef.current.setTextTrackVisibility(true);
+        }
+      }
+    }
+    setPlayerState(prev => ({ 
+      ...prev, 
+      currentSubtitle: subtitleId, 
+      showSubtitles: false, 
+      showControls: true 
+    }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    console.log('Retrying stream initialization');
+    initializePlayer();
+  }, [initializePlayer]);
+
+  // --- Controls Timer Logic ---
+
+  const startControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+      }
+    }, CONTROLS_HIDE_DELAY);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
+
+  const resetControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+    
+    if (playerState.isPlaying && !playerState.showSettings && !playerState.showSubtitles) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          setPlayerState(prev => ({ ...prev, showControls: false }));
+        }
+      }, CONTROLS_HIDE_DELAY);
+    }
+  }, [playerState.isPlaying, playerState.showSettings, playerState.showSubtitles]);
+
+  // --- Effects and Event Listeners ---
+  
+  useEffect(() => {
+    isMountedRef.current = true;
+    initializePlayer();
+    return () => {
+      isMountedRef.current = false;
+      destroyPlayer();
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [streamUrl, initializePlayer, destroyPlayer]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handlePlay = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPlaying: true }));
+      lastActivityRef.current = Date.now();
+    };
+    
+    const handlePause = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPlaying: false }));
+      lastActivityRef.current = Date.now();
+    };
+    
+    const handleWaiting = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isLoading: true }));
+    };
+    
+    const handlePlaying = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isLoading: false, isPlaying: true }));
+      lastActivityRef.current = Date.now();
+    };
+    
+    const handleTimeUpdate = () => {
+      if (!isMountedRef.current || !video || playerState.isSeeking) return;
+      const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+      setPlayerState(prev => ({ 
+        ...prev, 
+        currentTime: video.currentTime, 
+        duration: video.duration || 0, 
+        buffered: buffered 
+      }));
+    };
+    
+    const handleVolumeChange = () => {
+      if (!isMountedRef.current || !video) return;
+      setPlayerState(prev => ({ ...prev, isMuted: video.muted }));
+    };
+    
+    const handleEnterPip = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPipActive: true }));
+    };
+    
+    const handleLeavePip = () => {
+      if (!isMountedRef.current) return;
+      setPlayerState(prev => ({ ...prev, isPipActive: false }));
+    };
+    
+    const handleFullscreenChange = () => {
+      if (!isMountedRef.current) return;
+      const isFullscreen = !!document.fullscreenElement;
+      setPlayerState(prev => ({ ...prev, isFullscreen }));
+      
+      if (isFullscreen) {
+        resetControlsTimer();
+      }
+    };
+    
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('volumechange', handleVolumeChange);
+    video.addEventListener('enterpictureinpicture', handleEnterPip);
+    video.addEventListener('leavepictureinpicture', handleLeavePip);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('volumechange', handleVolumeChange);
+      video.removeEventListener('enterpictureinpicture', handleEnterPip);
+      video.removeEventListener('leavepictureinpicture', handleLeavePip);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [playerState.isSeeking, resetControlsTimer]);
+
+  // --- Seeking logic ---
+  const calculateNewTime = useCallback((clientX: number): number | null => {
+    const video = videoRef.current;
+    const progressBar = progressRef.current;
+    if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null;
+    const rect = progressBar.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const percentage = clickX / rect.width;
+    return percentage * video.duration;
+  }, []);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const video = videoRef.current;
+    if (!video || !isFinite(video.duration) || video.duration <= 0) return;
+    wasPlayingBeforeSeekRef.current = !video.paused;
+    dragStartRef.current = { isDragging: true };
+    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true }));
+    video.pause();
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current?.isDragging) return;
+    const newTime = calculateNewTime(e.clientX);
+    if (newTime !== null) {
+      setPlayerState(prev => ({ ...prev, currentTime: newTime, showControls: true }));
+      seekTimeRef.current = newTime;
+    }
+    lastActivityRef.current = Date.now();
+  }, [calculateNewTime]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!dragStartRef.current?.isDragging) return;
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = seekTimeRef.current;
+      if (wasPlayingBeforeSeekRef.current) {
+        video.play().catch(console.error);
+      }
+    }
+    dragStartRef.current = null;
+    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const newTime = calculateNewTime(e.clientX);
+    if (newTime !== null && videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, [calculateNewTime]);
+  
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (video.paused) {
+        shakaPlayerRef.current.play().catch(console.error);
+      } else {
+        shakaPlayerRef.current.pause();
+      }
+    } else {
+      if (video.paused) {
+        video.play().catch(console.error);
+      } else {
+        video.pause();
+      }
+    }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.muted = !video.muted;
+      setPlayerState(prev => ({ ...prev, showControls: true }));
+      lastActivityRef.current = Date.now();
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await container.requestFullscreen();
+      }
+    } catch (error) {
+      console.warn('Fullscreen error:', error);
     }
     
     setPlayerState(prev => ({ ...prev, showControls: true }));
@@ -790,26 +1600,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
-  const handlePlayerClick = useCallback(() => {
-    if (playerState.showSettings) {
-      setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
+  const handlePlayerClick = useCallback((e: React.MouseEvent) => {
+    // Prevent click when interacting with controls or menus
+    if (playerState.showSettings || playerState.showSubtitles) {
+      setPlayerState(prev => ({ 
+        ...prev, 
+        showSettings: false, 
+        showSubtitles: false,
+        showControls: true 
+      }));
       lastActivityRef.current = Date.now();
       return;
     }
     
-    // Toggle controls visibility on click
-    setPlayerState(prev => ({ ...prev, showControls: !prev.showControls }));
+    // Toggle controls visibility on player click
+    const newShowControls = !playerState.showControls;
+    setPlayerState(prev => ({ ...prev, showControls: newShowControls }));
     lastActivityRef.current = Date.now();
     
     // If showing controls, start timer to hide them
-    if (!playerState.showControls) {
+    if (newShowControls && playerState.isPlaying) {
       startControlsTimer();
     }
-  }, [playerState.showSettings, playerState.showControls, startControlsTimer]);
+  }, [playerState.showSettings, playerState.showSubtitles, playerState.showControls, playerState.isPlaying, startControlsTimer]);
 
-  const handleMouseMove = useCallback(() => {
-    resetControlsTimer();
-  }, [resetControlsTimer]);
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Only reset timer if not in settings/subtitle menus
+    if (!playerState.showSettings && !playerState.showSubtitles) {
+      resetControlsTimer();
+    }
+  }, [resetControlsTimer, playerState.showSettings, playerState.showSubtitles]);
 
   useEffect(() => {
     document.addEventListener('mousemove', handleDragMove);
@@ -873,32 +1693,142 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
+        {/* Top Controls */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+          {/* Subtitle Button */}
+          {playerState.availableSubtitles.length > 0 && (
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setPlayerState(prev => ({ 
+                  ...prev, 
+                  showSubtitles: !prev.showSubtitles,
+                  showSettings: false 
+                })); 
+              }}
+              className={`p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all ${
+                playerState.showSubtitles ? 'bg-blue-600' : ''
+              }`}
+              title="Subtitles"
+            >
+              <Subtitles size={18} />
+            </button>
+          )}
+
+          {/* Settings Button */}
+          {(playerState.availableQualities.length > 0 || playerState.availableSubtitles.length > 0) && (
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setPlayerState(prev => ({ 
+                  ...prev, 
+                  showSettings: !prev.showSettings,
+                  showSubtitles: false 
+                })); 
+              }}
+              className={`p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all ${
+                playerState.showSettings ? 'bg-blue-600' : ''
+              }`}
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+          )}
+        </div>
+
         {/* Settings Menu */}
         {playerState.showSettings && (
-          <div className="absolute top-4 right-4 bg-black/90 rounded-lg p-2 min-w-48 z-10">
-            <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
-            <div className="space-y-1">
-              <button
-                onClick={() => changeQuality(-1)}
-                className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
-                  playerState.currentQuality === -1 
-                    ? 'bg-blue-600 text-white' 
-                    : 'text-gray-300 hover:bg-gray-700'
-                }`}
-              >
-                Auto
+          <div className="absolute top-16 right-4 bg-black/95 backdrop-blur-sm rounded-lg p-3 min-w-48 z-20 border border-white/20">
+            {playerState.availableQualities.length > 0 && (
+              <>
+                <div className="text-white text-sm font-medium mb-2 px-2">Quality</div>
+                <div className="space-y-1 mb-3">
+                  <button
+                    onClick={() => changeQuality(-1)}
+                    className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                      playerState.currentQuality === -1 
+                        ? 'bg-blue-600 text-white' 
+                        : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    Auto
+                  </button>
+                  {playerState.availableQualities.map((quality) => (
+                    <button
+                      key={quality.id}
+                      onClick={() => changeQuality(quality.id)}
+                      className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                        playerState.currentQuality === quality.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'text-gray-300 hover:bg-gray-700'
+                      }`}
+                    >
+                      {quality.height}p ({quality.bitrate} kbps)
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Audio Track Selection */}
+            <div className="text-white text-sm font-medium mb-2 px-2">Audio</div>
+            <div className="space-y-1 mb-3">
+              <button className="w-full text-left px-2 py-1.5 text-sm rounded bg-blue-600 text-white">
+                Default
               </button>
-              {playerState.availableQualities.map((quality) => (
+            </div>
+
+            {/* Playback Speed */}
+            <div className="text-white text-sm font-medium mb-2 px-2">Playback speed</div>
+            <div className="space-y-1">
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
                 <button
-                  key={quality.id}
-                  onClick={() => changeQuality(quality.id)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded transition-colors ${
-                    playerState.currentQuality === quality.id 
+                  key={speed}
+                  onClick={() => {
+                    if (videoRef.current) {
+                      videoRef.current.playbackRate = speed;
+                    }
+                    setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
+                  }}
+                  className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                    videoRef.current?.playbackRate === speed 
                       ? 'bg-blue-600 text-white' 
                       : 'text-gray-300 hover:bg-gray-700'
                   }`}
                 >
-                  {quality.height}p ({quality.bitrate} kbps)
+                  {speed === 1 ? 'Normal' : `${speed}x`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Subtitle Menu */}
+        {playerState.showSubtitles && playerState.availableSubtitles.length > 0 && (
+          <div className="absolute top-16 right-4 bg-black/95 backdrop-blur-sm rounded-lg p-3 min-w-48 z-20 border border-white/20">
+            <div className="text-white text-sm font-medium mb-2 px-2">Subtitles</div>
+            <div className="space-y-1">
+              <button
+                onClick={() => changeSubtitle('')}
+                className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                  playerState.currentSubtitle === '' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                Off
+              </button>
+              {playerState.availableSubtitles.map((subtitle) => (
+                <button
+                  key={subtitle.id}
+                  onClick={() => changeSubtitle(subtitle.id)}
+                  className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
+                    playerState.currentSubtitle === subtitle.id 
+                      ? 'bg-blue-600 text-white' 
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  {subtitle.label}
                 </button>
               ))}
             </div>
@@ -911,7 +1841,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <button
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }}
                 className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all"
-               >
+              >
                 <Play size={24} fill="white" className="ml-1" />
                 </button>
             </div>
@@ -962,16 +1892,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             )}
 
             <div className="flex-1"></div>
-
-            {playerState.availableQualities.length > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }}
-                className={`text-white hover:text-blue-300 transition-colors p-2 ${playerState.showSettings ? 'text-blue-400' : ''}`}
-                title="Settings"
-              >
-                <Settings size={18} />
-              </button>
-            )}
 
             {document.pictureInPictureEnabled && (
               <button
