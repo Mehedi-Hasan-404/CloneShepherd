@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - Fixed Version
+// /src/components/VideoPlayer.tsx - Fixed Settings Drawer and Seeking
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
 import {
@@ -433,7 +433,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return null;
   }, []);
 
-  const handleSeekStart = useCallback((e: React.MouseEvent) => {
+  const handleSeekStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     const video = videoRef.current;
     if (!video) return;
@@ -443,9 +443,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.pause();
   }, []);
 
-  const handleSeekMove = useCallback((e: MouseEvent) => {
+  const handleSeekMove = useCallback((e: MouseEvent | TouchEvent) => {
     if (!dragStartRef.current?.isDragging) return;
-    const newTime = calculateNewTime(e.clientX);
+    
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const newTime = calculateNewTime(clientX);
     if (newTime !== null) {
       if(videoRef.current) videoRef.current.currentTime = newTime;
       setPlayerState(prev => ({ ...prev, currentTime: newTime }));
@@ -470,6 +472,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       videoRef.current.currentTime = newTime;
     }
   }, [calculateNewTime]);
+
+  // Touch event handlers for mobile
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    handleSeekStart(e);
+  }, [handleSeekStart]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault(); // Prevent scrolling while seeking
+    handleSeekMove(e);
+  }, [handleSeekMove]);
+
+  const handleTouchEnd = useCallback(() => {
+    handleSeekEnd();
+  }, [handleSeekEnd]);
 
   // --- SETTINGS LOGIC ---
   const changeQuality = useCallback((qualityId: number) => {
@@ -595,11 +611,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [playerState.isSeeking, playerState.isLive]);
   
   useEffect(() => {
+    // Mouse events
     document.addEventListener('mousemove', handleSeekMove);
     document.addEventListener('mouseup', handleSeekEnd);
+    
+    // Touch events
+    document.addEventListener('touchmove', handleSeekMove, { passive: false });
+    document.addEventListener('touchend', handleSeekEnd);
+    
     return () => {
       document.removeEventListener('mousemove', handleSeekMove);
       document.removeEventListener('mouseup', handleSeekEnd);
+      document.removeEventListener('touchmove', handleSeekMove);
+      document.removeEventListener('touchend', handleSeekEnd);
     };
   }, [handleSeekMove, handleSeekEnd]);
 
@@ -746,6 +770,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={progressRef} 
             className="relative h-1.5 bg-white/20 rounded-full group/seekbar cursor-pointer" 
             onClick={handleProgressClick}
+            onMouseDown={handleSeekStart}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
             <div 
               className="absolute h-full bg-white/40 rounded-full" 
@@ -758,7 +786,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div 
               className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-red-500 transition-transform duration-150 ease-out group-hover/seekbar:scale-125" 
               style={{ left: `${currentTimePercentage}%` }} 
-              onMouseDown={handleSeekStart} 
+              onMouseDown={handleSeekStart}
+              onTouchStart={handleTouchStart}
               onClick={(e) => e.stopPropagation()}
             />
           </div>
@@ -806,15 +835,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       </div>
       
+      {/* FIXED: Settings drawer with proper positioning for both portrait and landscape */}
       <Drawer 
         open={playerState.showSettings} 
         onOpenChange={(isOpen) => setPlayerState(p => ({ ...p, showSettings: isOpen }))}
+        modal={true}
       >
-        <DrawerContent className="bg-[#0a0a0a] text-white border-t border-gray-700 outline-none landscape:max-w-md landscape:mx-auto">
-          <DrawerHeader>
+        <DrawerContent 
+          className="bg-[#0a0a0a] text-white border-t border-gray-700 outline-none max-h-[80vh]"
+          style={{ 
+            maxHeight: '80vh',
+            height: 'auto',
+            bottom: '0',
+            top: 'auto'
+          }}
+        >
+          <DrawerHeader className="border-b border-gray-700">
             <DrawerTitle className="text-center text-xl">Stream Settings</DrawerTitle>
           </DrawerHeader>
-          <div className="p-4 overflow-y-auto max-h-[60vh]">
+          <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 80px)' }}>
             <Accordion type="single" collapsible className="w-full">
               {playerState.availableQualities.length > 0 && (
                 <AccordionItem value="quality" className="border-b border-gray-700">
