@@ -1,6 +1,6 @@
 // /src/components/VideoPlayer.tsx - Now with Accordion Menu
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, RotateCw } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
@@ -57,6 +57,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isLoading: true,
     error: null as string | null,
     isFullscreen: false,
+    isLandscape: false,
     showControls: true,
     currentTime: 0,
     duration: 0,
@@ -346,10 +347,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleVolumeChange = () => { if (!isMountedRef.current || !video) return; setPlayerState(prev => ({ ...prev, isMuted: video.muted })); };
     const handleEnterPip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPipActive: true })); };
     const handleLeavePip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPipActive: false })); };
-    const handleFullscreenChange = () => { if (!isMountedRef.current) return; const isFullscreen = !!document.fullscreenElement; setPlayerState(prev => ({ ...prev, isFullscreen })); if (isFullscreen) resetControlsTimer(); };
-    video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip); document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); document.removeEventListener('fullscreenchange', handleFullscreenChange); };
-  }, [playerState.isSeeking, resetControlsTimer]);
+    video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip);
+    return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); };
+  }, [playerState.isSeeking]);
 
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
@@ -372,8 +372,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const toggleMute = useCallback(() => {
     const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
   }, []);
-  const toggleFullscreen = useCallback(async () => {
-    const container = containerRef.current; if (!container) return; try { if (document.fullscreenElement) await document.exitFullscreen(); else await container.requestFullscreen(); } catch (error) { console.warn('Fullscreen error:', error); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  const toggleLandscape = useCallback(() => {
+    setPlayerState(prev => ({ ...prev, isLandscape: !prev.isLandscape, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
   const togglePip = useCallback(async () => {
     const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
@@ -406,7 +407,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
   return (
-    <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
+    <div 
+      ref={containerRef} 
+      className={`relative bg-black w-full h-full ${className} ${playerState.isLandscape ? 'landscape' : ''}`}
+      onMouseMove={handleMouseMove} 
+      onClick={handlePlayerClick}
+      style={playerState.isLandscape ? { 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        width: '100vw', 
+        height: '100vh', 
+        zIndex: 9999 
+      } : {}}
+    >
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
       {playerState.isLoading && (<div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center"><div className="text-center text-white"><Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" /><div className="text-sm">Loading stream...</div></div></div>)}
       <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -431,7 +445,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {isFinite(playerState.duration) && playerState.duration > 0 && (<div className="text-white text-sm">{formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}</div>)}
             <div className="flex-1"></div>
             {document.pictureInPictureEnabled && (<button onClick={(e) => { e.stopPropagation(); togglePip(); }} className="text-white hover:text-blue-300 transition-colors p-2" title="Picture-in-picture"><PictureInPicture2 size={18} /></button>)}
-            <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="text-white hover:text-blue-300 transition-colors p-2" title="Fullscreen">{playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}</button>
+            <button onClick={(e) => { e.stopPropagation(); toggleLandscape(); }} className="text-white hover:text-blue-300 transition-colors p-2" title={playerState.isLandscape ? "Exit landscape" : "Enter landscape"}>
+              {playerState.isLandscape ? <Minimize size={18} /> : <RotateCw size={18} />}
+            </button>
           </div>
         </div>
       </div>
