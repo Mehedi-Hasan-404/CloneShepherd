@@ -1,4 +1,4 @@
-// /src/pages/ChannelPlayer.tsx - Debug Version
+// /src/pages/ChannelPlayer.tsx - Fixed Version with Animated Favorites
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -13,7 +13,7 @@ import { ArrowLeft, Star, Share2, AlertCircle, Search, Play } from 'lucide-react
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { useRecents } from '@/contexts/RecentsContext';
 import { toast } from "@/components/ui/sonner";
-import ErrorBoundary from '@/components/ErrorBoundary'; // NEW: Error Boundary Import
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 const ChannelPlayer = () => {
   const params = useParams<{ channelId: string }>();
@@ -24,33 +24,21 @@ const ChannelPlayer = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const { addRecent } = useRecents();
-
-  // Helper function to add debug info
-  const addDebug = (message: string) => {
-    console.log(`[ChannelPlayer] ${message}`);
-    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${message}`]);
-  };
 
   // Get channelId from params
   const channelId = params.channelId;
 
   useEffect(() => {
-    addDebug(`Component mounted/channelId changed with: ${channelId}`);
-    
     if (channelId) {
-      // Ensure we re-fetch all data when channelId changes
       fetchChannel();
       fetchAllChannels();
     } else {
-      addDebug('No channelId found in params');
       setError('No channel ID provided in URL');
       setLoading(false);
     }
-    // Dependency array ensures this runs only when the channelId in the URL changes
   }, [channelId]);
 
   useEffect(() => {
@@ -68,7 +56,6 @@ const ChannelPlayer = () => {
   }, [searchQuery, allChannels, channel]);
 
   const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
-    addDebug(`Parsing M3U content for category: ${categoryName}`);
     const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
     const channels: PublicChannel[] = [];
     let currentChannel: Partial<PublicChannel> = {};
@@ -91,7 +78,6 @@ const ChannelPlayer = () => {
       } else if (line && !line.startsWith('#') && currentChannel.name) {
         const cleanChannelName = currentChannel.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const channel: PublicChannel = {
-          // IMPORTANT: Consistent ID generation for M3U channels
           id: `${categoryId}_${cleanChannelName}_${channels.length}`, 
           name: currentChannel.name,
           logoUrl: currentChannel.logoUrl || '/placeholder.svg',
@@ -104,13 +90,11 @@ const ChannelPlayer = () => {
       }
     }
 
-    addDebug(`Parsed ${channels.length} channels from M3U`);
     return channels;
   };
 
   const fetchM3UPlaylist = async (m3uUrl: string, categoryId: string, categoryName: string): Promise<PublicChannel[]> => {
     try {
-      addDebug(`Fetching M3U playlist: ${m3uUrl}`);
       const response = await fetch(m3uUrl);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -118,13 +102,12 @@ const ChannelPlayer = () => {
       const m3uContent = await response.text();
       return parseM3U(m3uContent, categoryId, categoryName);
     } catch (error) {
-      addDebug(`Error fetching M3U playlist: ${error}`);
+      console.error('Error fetching M3U playlist:', error);
       return [];
     }
   };
 
   const fetchAllChannels = async () => {
-    addDebug('Starting fetchAllChannels');
     try {
       const categoriesRef = collection(db, 'categories');
       const categoriesSnapshot = await getDocs(categoriesRef);
@@ -140,9 +123,8 @@ const ChannelPlayer = () => {
           ...doc.data()
         })) as PublicChannel[];
         allChannelsList = [...allChannelsList, ...manualChannels];
-        addDebug(`Found ${manualChannels.length} manual channels`);
       } catch (manualChannelsError) {
-        addDebug(`Error fetching manual channels: ${manualChannelsError}`);
+        console.error('Error fetching manual channels:', manualChannelsError);
       }
 
       // Get M3U channels from all categories
@@ -158,48 +140,40 @@ const ChannelPlayer = () => {
             );
             if (m3uChannels.length > 0) {
               allChannelsList = [...allChannelsList, ...m3uChannels];
-              addDebug(`Added ${m3uChannels.length} M3U channels from ${categoryData.name}`);
             }
           } catch (m3uError) {
-            addDebug(`Error loading M3U playlist for category ${categoryData.name}: ${m3uError}`);
+            console.error(`Error loading M3U playlist for category ${categoryData.name}:`, m3uError);
           }
         }
       }
 
-      // Filter out duplicates (important if a channel is both manual and in an M3U)
+      // Filter out duplicates
       const uniqueChannels = allChannelsList.filter((ch, index, self) =>
         index === self.findIndex((t) => t.id === ch.id)
       );
 
-      addDebug(`Total unique channels loaded: ${uniqueChannels.length}`);
       setAllChannels(uniqueChannels);
     } catch (error) {
-      addDebug(`Error in fetchAllChannels: ${error}`);
+      console.error('Error in fetchAllChannels:', error);
     }
   };
 
   const fetchChannel = async () => {
-    addDebug(`Starting fetchChannel for channelId: ${channelId}`);
     try {
       setLoading(true);
       setError(null);
-      setChannel(null); // Reset channel state when fetching a new one
+      setChannel(null);
 
       if (!channelId) {
-        const errorMsg = 'Channel ID is required';
-        addDebug(errorMsg);
-        setError(errorMsg);
+        setError('Channel ID is required');
         return;
       }
 
       const decodedChannelId = decodeURIComponent(channelId);
-      addDebug(`Decoded channel ID: ${decodedChannelId}`);
-
       let foundChannel: PublicChannel | null = null;
       
       // 1. Search manual channels first
       try {
-        addDebug('Searching manual channels...');
         const channelsRef = collection(db, 'channels');
         const channelsSnapshot = await getDocs(channelsRef);
         
@@ -218,12 +192,11 @@ const ChannelPlayer = () => {
           }
         }
       } catch (manualChannelsError) {
-        addDebug(`Error fetching manual channels: ${manualChannelsError}`);
+        console.error('Error fetching manual channels:', manualChannelsError);
       }
 
-      // 2. Search M3U channels if not found (This is the slow path)
+      // 2. Search M3U channels if not found
       if (!foundChannel) {
-        addDebug('Not found in manual channels, searching M3U playlists...');
         const categoriesRef = collection(db, 'categories');
         const categoriesSnapshot = await getDocs(categoriesRef);
           
@@ -231,7 +204,6 @@ const ChannelPlayer = () => {
           const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
           
           if (categoryData.m3uUrl) {
-            addDebug(`Checking M3U playlist for category: ${categoryData.name}`);
             try {
               const m3uChannels = await fetchM3UPlaylist(
                 categoryData.m3uUrl,
@@ -245,31 +217,25 @@ const ChannelPlayer = () => {
               
               if (m3uChannel) {
                 foundChannel = m3uChannel;
-                addDebug(`Found in M3U playlist: ${JSON.stringify(foundChannel)}`);
                 break;
               }
             } catch (m3uError) {
-              addDebug(`Error loading M3U playlist for category ${categoryData.name}: ${m3uError}`);
+              console.error(`Error loading M3U playlist for category ${categoryData.name}:`, m3uError);
             }
           }
         }
       }
 
       if (!foundChannel) {
-        const errorMsg = 'Channel not found. The channel may have been removed or the link is invalid.';
-        addDebug(errorMsg);
-        setError(errorMsg);
+        setError('Channel not found. The channel may have been removed or the link is invalid.');
         return;
       }
 
       if (!foundChannel.streamUrl) {
-        const errorMsg = 'Channel stream URL is missing or invalid.';
-        addDebug(`${errorMsg} Found channel: ${JSON.stringify(foundChannel)}`);
-        setError(errorMsg);
+        setError('Channel stream URL is missing or invalid.');
         return;
       }
 
-      addDebug(`Setting final channel: ${foundChannel.id}`);
       setChannel(foundChannel);
       
       if (addRecent) {
@@ -277,12 +243,9 @@ const ChannelPlayer = () => {
       }
 
     } catch (error) {
-      const errorMsg = `Failed to load channel: ${error}`;
-      addDebug(errorMsg);
-      setError(errorMsg);
+      setError(`Failed to load channel: ${error}`);
     } finally {
       setLoading(false);
-      addDebug('fetchChannel completed');
     }
   };
 
@@ -297,7 +260,7 @@ const ChannelPlayer = () => {
         toast.success(`${channel.name} added to favorites!`);
       }
     } catch (error) {
-      addDebug(`Error toggling favorite: ${error}`);
+      console.error('Error toggling favorite:', error);
       toast.error("Failed to update favorites");
     }
   };
@@ -312,7 +275,7 @@ const ChannelPlayer = () => {
           url: window.location.href,
         });
       } catch (error) {
-        addDebug(`Error sharing: ${error}`);
+        console.error('Error sharing:', error);
       }
     } else {
       try {
@@ -326,25 +289,13 @@ const ChannelPlayer = () => {
 
   const handleChannelSelect = (selectedChannel: PublicChannel) => {
     if (selectedChannel && selectedChannel.id) {
-      addDebug(`Navigating to channel: ${selectedChannel.id}`);
-      // Navigate to the new channel, which triggers the useEffect and fetches the new stream
       navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
     }
   };
 
-  const showDebugInfo = process.env.NODE_ENV === 'development';
-
   if (loading) {
     return (
       <div className="space-y-6 p-4 sm:p-6">
-        {showDebugInfo && (
-          <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-40 overflow-y-auto">
-            <strong>DEBUG INFO (LOADING):</strong><br />
-            {debugInfo.slice(-10).map((info, i) => (
-              <div key={i}>{info}</div>
-            ))}
-          </div>
-        )}
         <div className="flex items-center gap-4">
           <Skeleton className="h-16 w-16 rounded-lg" />
           <div className="space-y-2">
@@ -365,14 +316,6 @@ const ChannelPlayer = () => {
     const displayError = error || 'Channel not found or stream is missing.';
     return (
       <div className="space-y-6 p-4 sm:p-6">
-        {showDebugInfo && (
-          <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-60 overflow-y-auto">
-            <strong>DEBUG INFO (ERROR):</strong><br />
-            {debugInfo.map((info, i) => (
-              <div key={i}>{info}</div>
-            ))}
-          </div>
-        )}
         <Button 
           variant="ghost" 
           onClick={() => navigate(-1)}
@@ -394,14 +337,6 @@ const ChannelPlayer = () => {
   return (
     <ErrorBoundary>
       <div className="space-y-6 p-4 sm:p-6">
-        {showDebugInfo && (
-          <div className="bg-gray-900 text-green-400 p-4 rounded text-xs font-mono max-h-40 overflow-y-auto">
-            <strong>DEBUG INFO (LIVE):</strong><br />
-            {debugInfo.slice(-5).map((info, i) => (
-              <div key={i}>{info}</div>
-            ))}
-          </div>
-        )}
         
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -414,9 +349,13 @@ const ChannelPlayer = () => {
               variant="outline"
               size="sm"
               onClick={handleFavoriteToggle}
-              className={isChannelFavorite ? 'text-yellow-500' : ''}
+              className={`transition-all duration-300 ${isChannelFavorite ? 'text-yellow-500 border-yellow-500/50 bg-yellow-500/10' : ''}`}
             >
-              <Star size={16} fill={isChannelFavorite ? 'currentColor' : 'none'} className="mr-1" />
+              <Star 
+                size={16} 
+                fill={isChannelFavorite ? 'currentColor' : 'none'} 
+                className={`mr-1 transition-all duration-300 ${isChannelFavorite ? 'animate-pulse' : ''}`} 
+              />
               {isChannelFavorite ? 'Favorited' : 'Add to Favorites'}
             </Button>
             <Button variant="outline" size="sm" onClick={handleShare}>
@@ -443,11 +382,9 @@ const ChannelPlayer = () => {
           </div>
         </div>
 
-        {/* Video Player */}
-        <div className="w-full aspect-video bg-black rounded-lg overflow-hidden shadow-2xl">
+        {/* Video Player - Full Width, No Rounded Corners */}
+        <div className="w-full aspect-video bg-black overflow-hidden shadow-2xl">
           <VideoPlayer
-            // CRITICAL FIX: The 'key' forces React to destroy and rebuild the component 
-            // when channel.id changes, ensuring HLS is fully reset.
             key={channel.id} 
             streamUrl={channel.streamUrl}
             channelName={channel.name}
@@ -457,7 +394,7 @@ const ChannelPlayer = () => {
           />
         </div>
 
-        {/* Rest of the component: Related Channels */}
+        {/* Related Channels Section */}
         <div className="related-channels-section pt-4">
           <h2 className="text-xl font-semibold mb-4 border-b pb-2">
             More Channels
@@ -477,24 +414,57 @@ const ChannelPlayer = () => {
 
           {filteredChannels.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {filteredChannels.map(ch => (
-                <div 
-                  key={ch.id} 
-                  className="channel-card cursor-pointer p-3 border rounded-lg hover:border-accent transition-colors bg-card shadow-sm"
-                  onClick={() => handleChannelSelect(ch)}
-                >
-                  <img
-                    src={ch.logoUrl || '/placeholder.svg'}
-                    alt={ch.name}
-                    className="w-full h-12 sm:h-16 object-contain mb-2 p-1"
-                  />
-                  <p className="text-sm font-medium truncate text-center">{ch.name}</p>
-                  <Badge className="mt-2 flex w-fit mx-auto items-center gap-1 text-xs" variant="default">
-                    <Play size={12} />
-                    Watch
-                  </Badge>
-                </div>
-              ))}
+              {filteredChannels.map(ch => {
+                const isRelatedFavorite = isFavorite(ch.id);
+                
+                return (
+                  <div 
+                    key={ch.id} 
+                    className="channel-card cursor-pointer p-3 border rounded-lg hover:border-accent transition-all duration-300 bg-card shadow-sm hover:shadow-lg transform hover:scale-105 relative"
+                    onClick={() => handleChannelSelect(ch)}
+                  >
+                    {/* Favorite Star Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        try {
+                          if (isRelatedFavorite) {
+                            removeFavorite(ch.id);
+                          } else {
+                            addFavorite(ch);
+                          }
+                        } catch (error) {
+                          console.error('Error toggling favorite:', error);
+                        }
+                      }}
+                      className={`absolute top-2 right-2 p-1 rounded-full z-10 transition-all duration-300 transform hover:scale-110 ${
+                        isRelatedFavorite
+                          ? 'bg-yellow-500 text-white shadow-lg animate-bounce'
+                          : 'bg-black/50 text-white hover:bg-black/70'
+                      }`}
+                      title={isRelatedFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      <Star 
+                        size={12} 
+                        fill={isRelatedFavorite ? 'white' : 'none'} 
+                        className={isRelatedFavorite ? 'animate-pulse' : ''}
+                      />
+                    </button>
+
+                    <img
+                      src={ch.logoUrl || '/placeholder.svg'}
+                      alt={ch.name}
+                      className="w-full h-12 sm:h-16 object-contain mb-2 p-1"
+                      onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
+                    />
+                    <p className="text-sm font-medium truncate text-center mb-2">{ch.name}</p>
+                    <Badge className="flex w-fit mx-auto items-center gap-1 text-xs transition-all duration-300 hover:bg-accent-hover" variant="default">
+                      <Play size={12} />
+                      Watch
+                    </Badge>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500">
