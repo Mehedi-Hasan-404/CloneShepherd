@@ -1,3 +1,4 @@
+// /src/lib/firebase.ts
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -13,10 +14,12 @@ const firebaseConfig = {
   measurementId: "G-LW16BGCNZQ",
 };
 
-// Init Firebase
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 // Exports
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// Optional: Initialize Analytics if supported
 export const analytics = (async () => (await isSupported()) ? getAnalytics(app) : null)();
