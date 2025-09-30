@@ -54,10 +54,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isMountedRef = useRef(true);
     const progressRef = useRef<HTMLDivElement>(null);
-    const lastActivityRef = useRef<number>(Date.now());
-    const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
     const wasPlayingBeforeSeekRef = useRef(false);
     const seekTimeRef = useRef(0);
+    const isDraggingRef = useRef(false);
 
     // --- State ---
     const [playerState, setPlayerState] = useState({
@@ -81,6 +80,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         availableAudioTracks: [] as AudioTrack[],
         currentAudioTrack: '',
     });
+
+    // --- Controls Visibility Logic ---
+    const startControlsTimer = useCallback(() => {
+        if (controlsTimeoutRef.current) {
+            clearTimeout(controlsTimeoutRef.current);
+        }
+        controlsTimeoutRef.current = setTimeout(() => {
+            if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+                setPlayerState(prev => ({ ...prev, showControls: false }));
+            }
+        }, CONTROLS_HIDE_DELAY);
+    }, [playerState.isPlaying, playerState.showSettings]);
+
+    const resetControlsTimer = useCallback(() => {
+        setPlayerState(prev => ({ ...prev, showControls: true }));
+        startControlsTimer();
+    }, [startControlsTimer]);
+
 
     // --- Player Initialization and Detection ---
     const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
@@ -156,6 +173,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 availableAudioTracks: audioTracks,
                 currentAudioTrack: hls.audioTrack.toString(),
             }));
+            resetControlsTimer();
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -216,6 +234,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             currentQuality: -1, isMuted: video.muted, isPlaying: !video.paused,
             currentAudioTrack: player.getAudioLanguages()[0] || '',
         }));
+        resetControlsTimer();
     };
 
     const initNativePlayer = (url: string, video: HTMLVideoElement) => {
@@ -226,6 +245,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             video.muted = muted;
             if (autoPlay) video.play().catch(console.warn);
             setPlayerState(prev => ({ ...prev, isLoading: false, error: null, isMuted: video.muted, isPlaying: !video.paused }));
+            resetControlsTimer();
         };
         video.addEventListener('loadedmetadata', onLoaded, { once: true });
     };
@@ -272,13 +292,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (!video) return;
         if (video.paused) video.play().catch(console.error);
         else video.pause();
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     const toggleMute = useCallback(() => {
         if (videoRef.current) videoRef.current.muted = !videoRef.current.muted;
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     const toggleFullscreen = useCallback(async () => {
         const container = containerRef.current;
@@ -289,8 +309,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         } catch (error) {
             console.warn('Fullscreen request failed:', error);
         }
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     const togglePip = useCallback(async () => {
         const video = videoRef.current;
@@ -301,8 +321,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         } catch(error) {
             console.warn('PIP request failed:', error);
         }
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     // --- Settings Handlers ---
     const changeQuality = useCallback((qualityId: number) => {
@@ -317,8 +337,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
         }
         setPlayerState(prev => ({ ...prev, currentQuality: qualityId }));
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     const changeSubtitle = useCallback((subtitleId: string) => {
         if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
@@ -333,23 +353,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
         }
         setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId }));
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
     
     const changePlaybackRate = useCallback((rate: number) => {
         if (videoRef.current) {
             videoRef.current.playbackRate = rate;
-            setPlayerState(prev => ({ ...prev, playbackRate: rate }));
-            lastActivityRef.current = Date.now();
+            setPlayerState(prev => ({ ...prev, playbackRate: rate, showSettings: false }));
         }
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     const changeAudioTrack = useCallback((trackId: string | number) => {
         if (playerTypeRef.current === 'hls' && hlsRef.current) hlsRef.current.audioTrack = Number(trackId);
         else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) shakaPlayerRef.current.selectAudioLanguage(trackId as string);
         setPlayerState(prev => ({ ...prev, currentAudioTrack: trackId.toString() }));
-        lastActivityRef.current = Date.now();
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
     // --- Seeking / Progress Bar Handlers ---
     const calculateNewTime = useCallback((clientX: number) => {
@@ -364,21 +384,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleProgressClick = useCallback((e: React.MouseEvent) => {
         const newTime = calculateNewTime(e.clientX);
         if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime;
-        lastActivityRef.current = Date.now();
-    }, [calculateNewTime]);
+        resetControlsTimer();
+    }, [calculateNewTime, resetControlsTimer]);
     
     const handleDragStart = useCallback((e: React.MouseEvent) => {
         const video = videoRef.current;
         if (!video || !isFinite(video.duration)) return;
         e.stopPropagation();
+        isDraggingRef.current = true;
         wasPlayingBeforeSeekRef.current = !video.paused;
-        dragStartRef.current = { isDragging: true };
         setPlayerState(prev => ({ ...prev, isSeeking: true }));
         if(wasPlayingBeforeSeekRef.current) video.pause();
     }, []);
 
     const handleDragMove = useCallback((e: MouseEvent) => {
-        if (!dragStartRef.current?.isDragging) return;
+        if (!isDraggingRef.current) return;
         const newTime = calculateNewTime(e.clientX);
         if (newTime !== null) {
             setPlayerState(prev => ({ ...prev, currentTime: newTime }));
@@ -387,32 +407,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, [calculateNewTime]);
 
     const handleDragEnd = useCallback(() => {
-        if (!dragStartRef.current?.isDragging) return;
+        if (!isDraggingRef.current) return;
+        isDraggingRef.current = false;
         const video = videoRef.current;
         if (video) {
             video.currentTime = seekTimeRef.current;
             if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error);
         }
-        dragStartRef.current = null;
         setPlayerState(prev => ({ ...prev, isSeeking: false }));
-    }, []);
+        resetControlsTimer();
+    }, [resetControlsTimer]);
 
-    // --- Controls Visibility ---
-    const resetControlsTimer = useCallback(() => {
-        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-        setPlayerState(prev => ({ ...prev, showControls: true }));
-        lastActivityRef.current = Date.now();
-        if (playerState.isPlaying && !playerState.showSettings) {
-            controlsTimeoutRef.current = setTimeout(() => {
-                if (isMountedRef.current) setPlayerState(prev => ({ ...prev, showControls: false }));
-            }, CONTROLS_HIDE_DELAY);
-        }
-    }, [playerState.isPlaying, playerState.showSettings]);
-
+    // **MODIFIED** This function now toggles controls visibility
     const handlePlayerClick = useCallback(() => {
-        if (playerState.showSettings) return;
-        togglePlay();
-    }, [playerState.showSettings, togglePlay]);
+        if (isDraggingRef.current) return;
+        
+        setPlayerState(prev => {
+            const newShowControls = !prev.showControls;
+            if (newShowControls) {
+                // If we are showing controls, start the hide timer
+                startControlsTimer();
+            } else if (controlsTimeoutRef.current) {
+                // If we are hiding them manually, clear the timer
+                clearTimeout(controlsTimeoutRef.current);
+            }
+            return { ...prev, showControls: newShowControls };
+        });
+    }, [startControlsTimer]);
 
     // --- Effects ---
     useEffect(() => {
@@ -423,7 +444,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             destroyPlayer();
             if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
         };
-    }, [streamUrl, initializePlayer, destroyPlayer]);
+    }, [streamUrl]); // Removed initializePlayer, destroyPlayer as they are stable
 
     useEffect(() => {
         const video = videoRef.current;
@@ -481,16 +502,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const progressPercentage = isFinite(playerState.duration) ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
     return (
-        <div ref={containerRef} className={`relative bg-black w-full h-full group ${className}`} onMouseMove={resetControlsTimer} onMouseLeave={() => controlsTimeoutRef.current && clearTimeout(controlsTimeoutRef.current)}>
-            <video ref={videoRef} className="w-full h-full object-contain" playsInline onClick={handlePlayerClick} onDoubleClick={toggleFullscreen} />
+        <div 
+            ref={containerRef} 
+            className={`relative bg-black w-full h-full group ${className}`} 
+            onMouseMove={resetControlsTimer} 
+            onMouseLeave={() => controlsTimeoutRef.current && clearTimeout(controlsTimeoutRef.current)}
+            onClick={handlePlayerClick} // **MODIFIED** Main click handler here
+        >
+            <video 
+                ref={videoRef} 
+                className="w-full h-full object-contain" 
+                playsInline 
+                onDoubleClick={toggleFullscreen} 
+                // **REMOVED** onClick from video to prevent double-firing
+            />
             
             {playerState.isLoading && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center" onClick={e => e.stopPropagation()}>
                     <Loader2 className="w-10 h-10 text-white animate-spin" />
                 </div>
             )}
             
-            <div className={`absolute inset-0 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <div 
+                className={`absolute inset-0 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={e => e.stopPropagation()} // Stop propagation to prevent container click handler from firing
+            >
                 {/* Gradient Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30"></div>
                 
@@ -498,7 +534,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
                     <h1 className="text-white font-semibold text-lg drop-shadow-md">{channelName}</h1>
                     {(playerState.availableQualities.length > 0 || playerState.availableSubtitles.length > 0 || playerState.availableAudioTracks.length > 1) && (
-                        <button onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }} className="p-2 rounded-lg bg-black/50 text-white hover:bg-black/80 transition-all" title="Settings">
+                        <button onClick={() => setPlayerState(prev => ({ ...prev, showSettings: true }))} className="p-2 rounded-lg bg-black/50 text-white hover:bg-black/80 transition-all" title="Settings">
                             <Settings size={20} />
                         </button>
                     )}
@@ -506,7 +542,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
                 {/* Center Play Button */}
                 {!playerState.isPlaying && !playerState.isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute inset-0 flex items-center justify-center">
                         <button onClick={togglePlay} className="w-20 h-20 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-white/30 transition-all">
                             <Play size={32} fill="white" className="ml-1" />
                         </button>
@@ -514,7 +550,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 )}
                 
                 {/* Bottom Controls */}
-                <div className="absolute bottom-0 left-0 right-0 p-4" onClick={(e) => e.stopPropagation()}>
+                <div className="absolute bottom-0 left-0 right-0 p-4">
                     {/* Progress Bar */}
                     <div ref={progressRef} className="relative h-4 -my-2 cursor-pointer" onClick={handleProgressClick}>
                         <div className="absolute top-1/2 -translate-y-1/2 w-full h-1 bg-white/30 rounded-full">
@@ -544,7 +580,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             {/* Settings Drawer */}
             <Drawer open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({ ...prev, showSettings: isOpen }))}>
-                <DrawerContent className="bg-black/90 border-t border-white/20 text-white outline-none" onClick={(e) => e.stopPropagation()}>
+                <DrawerContent className="bg-black/90 border-t border-white/20 text-white outline-none" onClick={e => e.stopPropagation()}>
                     <DrawerHeader><DrawerTitle className="text-center">Settings</DrawerTitle></DrawerHeader>
                     <div className="p-4 overflow-y-auto" style={{ maxHeight: '60vh' }}>
                         <Accordion type="single" collapsible className="w-full max-w-md mx-auto">
@@ -597,4 +633,5 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 };
 
 export default VideoPlayer;
+
 
