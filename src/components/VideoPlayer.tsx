@@ -71,6 +71,58 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isLandscape: false,
   });
 
+  // Enhanced landscape detection function
+  const detectLandscapeOrientation = useCallback((): boolean => {
+    // Check screen dimensions
+    const dimensionLandscape = window.innerWidth > window.innerHeight;
+    
+    // Check orientation API if available
+    let orientationLandscape = false;
+    if ('screen' in window && 'orientation' in window.screen) {
+      const orientation = window.screen.orientation.angle;
+      orientationLandscape = orientation === 90 || orientation === 270;
+    }
+    
+    // Use either method to determine landscape
+    return dimensionLandscape || orientationLandscape;
+  }, []);
+
+  // Initialize landscape detection on component mount and window resize
+  useEffect(() => {
+    const updateLandscapeState = () => {
+      const isLandscape = detectLandscapeOrientation();
+      setPlayerState(prev => ({ ...prev, isLandscape }));
+      
+      // Apply or remove landscape class to body
+      if (isLandscape) {
+        document.body.classList.add('landscape-mode');
+      } else {
+        document.body.classList.remove('landscape-mode');
+      }
+    };
+
+    // Initial check
+    updateLandscapeState();
+
+    // Listen for resize events
+    window.addEventListener('resize', updateLandscapeState);
+    
+    // Listen for orientation changes (mobile devices)
+    if ('screen' in window && 'orientation' in window.screen) {
+      window.screen.orientation.addEventListener('change', updateLandscapeState);
+    }
+    // Fallback for older browsers
+    window.addEventListener('orientationchange', updateLandscapeState);
+
+    return () => {
+      window.removeEventListener('resize', updateLandscapeState);
+      if ('screen' in window && 'orientation' in window.screen) {
+        window.screen.orientation.removeEventListener('change', updateLandscapeState);
+      }
+      window.removeEventListener('orientationchange', updateLandscapeState);
+    };
+  }, [detectLandscapeOrientation]);
+
   const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
     let cleanUrl = url;
     let drmInfo = null;
@@ -333,6 +385,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       isMountedRef.current = false;
       destroyPlayer();
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      // Clean up landscape-mode class when component unmounts
+      document.body.classList.remove('landscape-mode');
     };
   }, [streamUrl, initializePlayer, destroyPlayer]);
 
@@ -351,36 +405,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (!isMountedRef.current) return; 
       const isFullscreen = !!document.fullscreenElement; 
       
-      // Better landscape detection - consider both screen dimensions and orientation API
-      let isLandscape = false;
-      if (isFullscreen) {
-        // Check screen dimensions
-        const dimensionLandscape = window.innerWidth > window.innerHeight;
-        
-        // Check orientation API if available
-        let orientationLandscape = false;
-        if ('screen' in window && 'orientation' in window.screen) {
-          const orientation = window.screen.orientation.angle;
-          orientationLandscape = orientation === 90 || orientation === 270;
-        }
-        
-        // Use either method to determine landscape
-        isLandscape = dimensionLandscape || orientationLandscape;
-      }
-      
-      setPlayerState(prev => ({ ...prev, isFullscreen, isLandscape })); 
+      setPlayerState(prev => ({ ...prev, isFullscreen })); 
       
       if (isFullscreen) {
         resetControlsTimer();
         document.body.classList.add('fullscreen-mode');
-        
-        // Force landscape orientation class on body when in landscape
-        if (isLandscape) {
-          document.body.classList.add('landscape-mode');
-        }
       } else {
-        document.body.classList.remove('fullscreen-mode', 'landscape-mode');
-        setPlayerState(prev => ({ ...prev, isLandscape: false }));
+        document.body.classList.remove('fullscreen-mode');
         
         // Unlock orientation when exiting fullscreen
         if ('screen' in window && 'orientation' in window.screen && 'unlock' in window.screen.orientation) {
@@ -394,33 +425,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
     const handleResize = () => {
       if (!isMountedRef.current) return;
-      const isFullscreen = !!document.fullscreenElement;
-      
-      if (isFullscreen) {
-        // Better landscape detection during resize
-        const dimensionLandscape = window.innerWidth > window.innerHeight;
-        
-        let orientationLandscape = false;
-        if ('screen' in window && 'orientation' in window.screen) {
-          const orientation = window.screen.orientation.angle;
-          orientationLandscape = orientation === 90 || orientation === 270;
-        }
-        
-        const isLandscape = dimensionLandscape || orientationLandscape;
-        
-        setPlayerState(prev => ({ ...prev, isLandscape }));
-        if (isLandscape) {
-          document.body.classList.add('landscape-mode');
-        } else {
-          document.body.classList.remove('landscape-mode');
-        }
-      }
+      // Landscape detection is now handled by the dedicated useEffect
+      // This handler is kept for other resize-related logic if needed in the future
     };
-    // Add orientation change listener for mobile devices
-    const handleOrientationChange = () => {
-      // Small delay to allow orientation change to complete
-      setTimeout(handleResize, 100);
-    };
+    // Orientation change is now handled by the dedicated landscape detection useEffect
 
     video.addEventListener('play', handlePlay); 
     video.addEventListener('pause', handlePause); 
@@ -433,13 +441,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     document.addEventListener('fullscreenchange', handleFullscreenChange); 
     window.addEventListener('resize', handleResize);
     
-    // Listen for orientation changes (mobile devices)
-    if ('screen' in window && 'orientation' in window.screen) {
-      window.screen.orientation.addEventListener('change', handleOrientationChange);
-    }
-    // Fallback for older browsers
-    window.addEventListener('orientationchange', handleOrientationChange);
-    
     return () => { 
       video.removeEventListener('play', handlePlay); 
       video.removeEventListener('pause', handlePause); 
@@ -451,12 +452,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('leavepictureinpicture', handleLeavePip); 
       document.removeEventListener('fullscreenchange', handleFullscreenChange); 
       window.removeEventListener('resize', handleResize); 
-      
-      // Remove orientation listeners
-      if ('screen' in window && 'orientation' in window.screen) {
-        window.screen.orientation.removeEventListener('change', handleOrientationChange);
-      }
-      window.removeEventListener('orientationchange', handleOrientationChange);
     };
   }, [playerState.isSeeking, resetControlsTimer]);
 
