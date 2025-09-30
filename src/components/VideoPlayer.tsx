@@ -350,24 +350,64 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleFullscreenChange = () => { 
       if (!isMountedRef.current) return; 
       const isFullscreen = !!document.fullscreenElement; 
-      const isLandscape = isFullscreen && window.innerWidth > window.innerHeight;
+      
+      // Better landscape detection - consider both screen dimensions and orientation API
+      let isLandscape = false;
+      if (isFullscreen) {
+        // Check screen dimensions
+        const dimensionLandscape = window.innerWidth > window.innerHeight;
+        
+        // Check orientation API if available
+        let orientationLandscape = false;
+        if ('screen' in window && 'orientation' in window.screen) {
+          const orientation = window.screen.orientation.angle;
+          orientationLandscape = orientation === 90 || orientation === 270;
+        }
+        
+        // Use either method to determine landscape
+        isLandscape = dimensionLandscape || orientationLandscape;
+      }
+      
       setPlayerState(prev => ({ ...prev, isFullscreen, isLandscape })); 
+      
       if (isFullscreen) {
         resetControlsTimer();
-        // Force landscape orientation class on body when entering fullscreen
+        document.body.classList.add('fullscreen-mode');
+        
+        // Force landscape orientation class on body when in landscape
         if (isLandscape) {
           document.body.classList.add('landscape-mode');
         }
       } else {
-        document.body.classList.remove('landscape-mode');
+        document.body.classList.remove('fullscreen-mode', 'landscape-mode');
         setPlayerState(prev => ({ ...prev, isLandscape: false }));
+        
+        // Unlock orientation when exiting fullscreen
+        if ('screen' in window && 'orientation' in window.screen && 'unlock' in window.screen.orientation) {
+          try {
+            window.screen.orientation.unlock();
+          } catch (error) {
+            console.warn('Screen orientation unlock failed:', error);
+          }
+        }
       }
     };
     const handleResize = () => {
       if (!isMountedRef.current) return;
       const isFullscreen = !!document.fullscreenElement;
+      
       if (isFullscreen) {
-        const isLandscape = window.innerWidth > window.innerHeight;
+        // Better landscape detection during resize
+        const dimensionLandscape = window.innerWidth > window.innerHeight;
+        
+        let orientationLandscape = false;
+        if ('screen' in window && 'orientation' in window.screen) {
+          const orientation = window.screen.orientation.angle;
+          orientationLandscape = orientation === 90 || orientation === 270;
+        }
+        
+        const isLandscape = dimensionLandscape || orientationLandscape;
+        
         setPlayerState(prev => ({ ...prev, isLandscape }));
         if (isLandscape) {
           document.body.classList.add('landscape-mode');
@@ -376,8 +416,48 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     };
-    video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip); document.addEventListener('fullscreenchange', handleFullscreenChange); window.addEventListener('resize', handleResize);
-    return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); document.removeEventListener('fullscreenchange', handleFullscreenChange); window.removeEventListener('resize', handleResize); };
+    // Add orientation change listener for mobile devices
+    const handleOrientationChange = () => {
+      // Small delay to allow orientation change to complete
+      setTimeout(handleResize, 100);
+    };
+
+    video.addEventListener('play', handlePlay); 
+    video.addEventListener('pause', handlePause); 
+    video.addEventListener('waiting', handleWaiting); 
+    video.addEventListener('playing', handlePlaying); 
+    video.addEventListener('timeupdate', handleTimeUpdate); 
+    video.addEventListener('volumechange', handleVolumeChange); 
+    video.addEventListener('enterpictureinpicture', handleEnterPip); 
+    video.addEventListener('leavepictureinpicture', handleLeavePip); 
+    document.addEventListener('fullscreenchange', handleFullscreenChange); 
+    window.addEventListener('resize', handleResize);
+    
+    // Listen for orientation changes (mobile devices)
+    if ('screen' in window && 'orientation' in window.screen) {
+      window.screen.orientation.addEventListener('change', handleOrientationChange);
+    }
+    // Fallback for older browsers
+    window.addEventListener('orientationchange', handleOrientationChange);
+    
+    return () => { 
+      video.removeEventListener('play', handlePlay); 
+      video.removeEventListener('pause', handlePause); 
+      video.removeEventListener('waiting', handleWaiting); 
+      video.removeEventListener('playing', handlePlaying); 
+      video.removeEventListener('timeupdate', handleTimeUpdate); 
+      video.removeEventListener('volumechange', handleVolumeChange); 
+      video.removeEventListener('enterpictureinpicture', handleEnterPip); 
+      video.removeEventListener('leavepictureinpicture', handleLeavePip); 
+      document.removeEventListener('fullscreenchange', handleFullscreenChange); 
+      window.removeEventListener('resize', handleResize); 
+      
+      // Remove orientation listeners
+      if ('screen' in window && 'orientation' in window.screen) {
+        window.screen.orientation.removeEventListener('change', handleOrientationChange);
+      }
+      window.removeEventListener('orientationchange', handleOrientationChange);
+    };
   }, [playerState.isSeeking, resetControlsTimer]);
 
   const calculateNewTime = useCallback((clientX: number): number | null => {
@@ -402,7 +482,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
   }, []);
   const toggleFullscreen = useCallback(async () => {
-    const container = containerRef.current; if (!container) return; try { if (document.fullscreenElement) await document.exitFullscreen(); else await container.requestFullscreen(); } catch (error) { console.warn('Fullscreen error:', error); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+    const container = containerRef.current; 
+    if (!container) return; 
+    
+    try { 
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await container.requestFullscreen();
+        // Try to lock screen orientation to landscape on mobile devices
+        if ('screen' in window && 'orientation' in window.screen && 'lock' in window.screen.orientation) {
+          try {
+            await window.screen.orientation.lock('landscape');
+          } catch (orientationError) {
+            console.warn('Screen orientation lock failed:', orientationError);
+          }
+        }
+      }
+    } catch (error) { 
+      console.warn('Fullscreen error:', error); 
+    } 
+    setPlayerState(prev => ({ ...prev, showControls: true })); 
+    lastActivityRef.current = Date.now();
   }, []);
   const togglePip = useCallback(async () => {
     const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
@@ -466,10 +567,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
       <Drawer open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({...prev, showSettings: isOpen }))}>
         <DrawerContent className={`bg-black/90 border-t border-white/20 text-white outline-none transition-all duration-300 ${playerState.isLandscape ? 'landscape-drawer' : ''}`} onClick={(e) => e.stopPropagation()}>
-          <DrawerHeader>
-            <DrawerTitle className="text-center text-white">Settings</DrawerTitle>
+          <DrawerHeader className={playerState.isLandscape ? 'landscape-header' : ''}>
+            <DrawerTitle className={`text-center text-white ${playerState.isLandscape ? 'text-sm' : ''}`}>Settings</DrawerTitle>
           </DrawerHeader>
-          <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '70vh' : '50vh' }}>
+          <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '80vh' : '50vh' }}>
             <Accordion type="single" collapsible className={`w-full ${playerState.isLandscape ? 'landscape-accordion' : ''}`}>
               {playerState.availableQualities.length > 0 && (
                 <AccordionItem value="quality" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
