@@ -1,11 +1,11 @@
-// /src/components/VideoPlayer.tsx - Corrected Version with Flat Settings in Landscape
+// /src/components/VideoPlayer.tsx - Refined Version
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, ChevronRight } from 'lucide-react'; // Added ChevronRight
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { db } from '@/lib/firebase'; // Corrected import
-import { doc, getDoc } from 'firebase/firestore'; // Add Firestore imports
-import { useAuth } from '@/hooks/useAuth'; // Add Auth hook import
+import { doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '@/hooks/useAuth';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -37,7 +37,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   muted = true,
   className = ""
 }) => {
-  const { user } = useAuth(); // Use the auth hook
+  const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -55,6 +55,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
 
+  // --- Original Player State (from src 18.txt) + Landscape State ---
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
     isMuted: muted,
@@ -70,8 +71,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentQuality: -1,
     availableQualities: [] as QualityLevel[],
     availableSubtitles: [] as SubtitleTrack[],
-    currentSubtitle: null as string | null, // Add subtitle state
-    playbackSpeed: 1, // Add playback speed state
+    currentSubtitle: null as string | null,
+    playbackSpeed: 1,
+    // Add states for sub-menus if using flat layout in landscape
+    isQualityMenuOpen: false,
+    isSubtitleMenuOpen: false,
+    isSpeedMenuOpen: false,
   });
 
   // --- Orientation Detection ---
@@ -103,14 +108,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  // --- Player Initialization Logic (from src 18.txt) ---
+  // --- Refined Stream Type Detection ---
   const detectStreamType = useCallback((url: string) => {
-    const cleanUrl = url.trim();
+    let cleanUrl = url;
+    let drmInfo = null;
+
+    // Check for DRM parameters using '?|'
+    const drmIndex = url.indexOf('?|');
+    if (drmIndex !== -1) {
+      // Extract everything before '?|' as the base URL
+      cleanUrl = url.substring(0, drmIndex);
+      // Extract everything after '?|' as DRM parameters
+      const drmParamsStr = url.substring(drmIndex + 2); // Skip '?|'
+
+      if (drmParamsStr) {
+        const params = new URLSearchParams(drmParamsStr);
+        const drmScheme = params.get('drmScheme');
+        const drmLicense = params.get('drmLicense');
+
+        if (drmScheme && drmLicense) {
+          drmInfo = { scheme: drmScheme, license: drmLicense };
+        }
+      }
+    }
+
     const urlLower = cleanUrl.toLowerCase();
-    const drmInfo = { scheme: 'clearkey', license: '' }; // Simplified for example
-    if (urlLower.includes('.mpd') || urlLower.includes('manifest')) {
+
+    // Check for DASH first (MPD extension or keywords)
+    if (urlLower.includes('.mpd') || urlLower.includes('manifest') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
       return { type: 'dash', cleanUrl, drmInfo };
     }
+    // Then check for HLS
+    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/') || urlLower.includes('hls')) {
+      return { type: 'hls', cleanUrl, drmInfo };
+    }
+    // Fallback to native for common video formats
+    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
+      return { type: 'native', cleanUrl, drmInfo };
+    }
+
+    // Default to HLS if no extension is found, assuming it might be a generic stream endpoint
     return { type: 'hls', cleanUrl, drmInfo };
   }, []);
 
@@ -166,6 +203,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         initNativePlayer(cleanUrl, video);
       }
     } catch (error) {
+      console.error("Player initialization error:", error); // Log the error for debugging
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
     }
@@ -177,7 +215,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
-          debug: false,
+          debug: false, // Set to true for debugging if needed
           capLevelToPlayerSize: true,
           maxLoadingDelay: 1,
           maxBufferLength: 15,
@@ -218,6 +256,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (data.fatal) {
             if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            console.error("HLS Error:", data); // Log HLS errors
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 hls.startLoad();
@@ -249,6 +288,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
 
+      // Basic Shaka Player configuration
       player.configure({
         streaming: {
           bufferingGoal: 15,
@@ -281,9 +321,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         },
       });
 
+      // Configure DRM only if explicitly provided and valid
       if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
         const [keyId, key] = drmInfo.license.split(':');
-        player.configure({ drm: { clearKeys: { [keyId]: key } } });
+        if (keyId && key) { // Validate key parts exist
+          player.configure({ drm: { clearKeys: { [keyId]: key } } });
+        } else {
+           console.warn("Invalid DRM license format provided. Attempting playback without DRM.");
+        }
       }
 
       const onError = (event: any) => {
@@ -293,6 +338,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
         else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
         else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - content may be protected';
+        else errorMessage += ` - Details: ${event.detail.data?.message || 'Unknown'}`; // Add more detail if available
+        console.error("Shaka Player Error:", event); // Log Shaka errors
         setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
         destroyPlayer();
       };
@@ -301,18 +348,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       const tracks = player.getVariantTracks();
-      const qualities = tracks
+      // Map Shaka tracks to our QualityLevel interface
+      const qualities: QualityLevel[] = tracks
         .filter((t: any) => t.type === 'variant' && t.kind === 'audio' && t.language === 'und') // Simplified filter
-        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: i }));
-      const subtitles = player.getTextTracks().map((t: any) => ({ id: t.id.toString(), label: t.label || t.language, language: t.language }));
+        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: t.id })); // Use Shaka's track ID
+      // Map Shaka text tracks to our SubtitleTrack interface
+      const textTracks = player.getTextTracks();
+      const subtitles: SubtitleTrack[] = textTracks.map((t: any) => ({ id: t.id.toString(), label: t.label || t.language || 'Unknown', language: t.language || 'unknown' }));
 
+      video.muted = muted;
+      if (autoPlay) video.play().catch(console.warn);
       setPlayerState(prev => ({
         ...prev,
         isLoading: false,
         error: null,
         availableQualities: qualities,
         availableSubtitles: subtitles,
-        currentQuality: -1,
+        currentQuality: -1, // Shaka ABR is enabled by default
         isMuted: video.muted,
         isPlaying: true,
         showControls: true
@@ -485,17 +537,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [handleDragMove, handleDragEnd]);
 
-  // --- Settings Logic (Updated for Flat List in Landscape) ---
+  // --- Settings Logic (Using Accordion) ---
   const changeQuality = useCallback((qualityId: number) => {
-    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-      shakaPlayerRef.current.configure({ abr: { enabled: false } });
-      const tracks = shakaPlayerRef.current.getVariantTracks();
-      const targetTrack = tracks.find((t: any) => t.id === qualityId);
-      if (targetTrack) shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
-    } else if (playerTypeRef.current === 'hls' && hlsRef.current) {
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
       hlsRef.current.currentLevel = qualityId;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (qualityId === -1) {
+        shakaPlayerRef.current.configure({ abr: { enabled: true } });
+      } else {
+        shakaPlayerRef.current.configure({ abr: { enabled: false } });
+        const tracks = shakaPlayerRef.current.getVariantTracks();
+        const targetTrack = tracks.find((t: any) => t.id === qualityId);
+        if (targetTrack) shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
+      }
     }
-    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false, showControls: true }));
+    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
 
@@ -514,7 +570,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
-    setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId === 'off' ? null : subtitleId, showSettings: false, showControls: true }));
+    setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId === 'off' ? null : subtitleId, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
 
@@ -522,12 +578,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.playbackRate = speed;
     }
-    setPlayerState(prev => ({ ...prev, playbackSpeed: speed, showSettings: false, showControls: true }));
+    setPlayerState(prev => ({ ...prev, playbackSpeed: speed, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
 
-  // Determine if we are in landscape mode for the new layout
-  const isLandscapeFlat = playerState.isLandscape && playerState.showSettings;
+  // Determine if we are in landscape mode for potential layout changes
+  const isLandscapeMode = playerState.isLandscape;
 
   if (playerState.error && !playerState.isLoading) {
     return (
@@ -659,204 +715,119 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       </div>
 
-      {/* Settings Panel - Accordion (Portrait) or Flat List (Landscape) */}
-      {/* Use Drawer for portrait, Dialog for landscape with flat layout */}
-      {!isLandscapeFlat ? (
-        // Accordion Drawer for Portrait
-        <Drawer open={playerState.showSettings} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, showSettings: open }))}>
-          <DrawerContent className="max-h-[80vh]">
-            <DrawerHeader>
-              <DrawerTitle>Settings</DrawerTitle>
-            </DrawerHeader>
-            <div className="p-4 overflow-y-auto">
-              <Accordion type="single" collapsible className="w-full">
-                {playerState.availableQualities.length > 0 && (
-                  <AccordionItem value="quality">
-                    <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <span>Quality</span>
-                        <span className="text-xs text-gray-400">
-                          {playerState.currentQuality === -1
-                            ? 'Auto'
-                            : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
-                          }
-                        </span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-1 pt-2">
-                        <button
-                          onClick={() => changeQuality(-1)}
-                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-                          }`}
-                        >
-                          Auto
-                        </button>
-                        {playerState.availableQualities.map(quality => (
-                          <button
-                            key={quality.id}
-                            onClick={() => changeQuality(quality.id)}
-                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                              playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-                            }`}
-                          >
-                            {quality.height}p ({quality.bitrate} kbps)
-                          </button>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                )}
-
-                {playerState.availableSubtitles.length > 0 && (
-                  <AccordionItem value="subtitles">
-                    <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <span>Subtitles</span>
-                        <span className="text-xs text-gray-400">
-                          {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
-                        </span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-1 pt-2">
-                        <button
-                          onClick={() => changeSubtitle('off')}
-                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            !playerState.currentSubtitle ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-                          }`}
-                        >
-                          Off
-                        </button>
-                        {playerState.availableSubtitles.map(subtitle => (
-                          <button
-                            key={subtitle.id}
-                            onClick={() => changeSubtitle(subtitle.id)}
-                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                              playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
-                            }`}
-                          >
-                            {subtitle.label}
-                          </button>
-                        ))}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                )}
-
-                <AccordionItem value="speed">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+      {/* Settings Panel - Accordion (Portrait and Landscape) */}
+      {/* The original Accordion Drawer is maintained for both orientations */}
+      <Drawer open={playerState.showSettings} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, showSettings: open }))}>
+        <DrawerContent className={`max-h-[80vh] ${isLandscapeMode ? 'landscape-drawer' : ''}`}>
+          <DrawerHeader className={`${isLandscapeMode ? 'landscape-header' : ''}`}>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerHeader>
+          <div className={`p-4 overflow-y-auto transition-all duration-300 ${isLandscapeMode ? 'landscape-settings' : ''}`} style={{ maxHeight: isLandscapeMode ? '80vh' : '50vh' }}>
+            <Accordion type="single" collapsible className={`w-full ${isLandscapeMode ? 'landscape-accordion' : ''}`}>
+              {playerState.availableQualities.length > 0 && (
+                <AccordionItem value="quality" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
                     <div className="flex items-center gap-2">
-                      <span>Playback Speed</span>
+                      <span>Quality</span>
                       <span className="text-xs text-gray-400">
-                        {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
+                        {playerState.currentQuality === -1
+                          ? 'Auto'
+                          : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
+                        }
                       </span>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="space-y-1 pt-2">
-                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                      <button
+                        onClick={() => changeQuality(-1)}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        Auto
+                      </button>
+                      {playerState.availableQualities.map(quality => (
                         <button
-                          key={speed}
-                          onClick={() => changeSpeed(speed)}
+                          key={quality.id}
+                          onClick={() => changeQuality(quality.id)}
                           className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            playerState.playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                            playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
                           }`}
                         >
-                          {speed === 1 ? 'Normal' : `${speed}x`}
+                          {quality.height}p ({quality.bitrate} kbps)
                         </button>
                       ))}
                     </div>
                   </AccordionContent>
                 </AccordionItem>
-              </Accordion>
-            </div>
-          </DrawerContent>
-        </Drawer>
-      ) : (
-        // Flat List Dialog for Landscape Mode
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-popover text-popover-foreground rounded-lg shadow-lg overflow-hidden">
-            <div className="p-4 border-b border-border">
-              <h3 className="text-lg font-semibold">Settings</h3>
-            </div>
-            <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
-              {/* Quality Setting */}
-              {playerState.availableQualities.length > 0 && (
-                <div
-                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                  onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isQualityMenuOpen: true }))} // Example: open submenu
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 rounded-full bg-blue-500/10">
-                      <div className="w-4 h-4 bg-blue-500 rounded-sm"></div> {/* Placeholder icon */}
-                    </div>
-                    <span className="font-medium">Quality</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-muted-foreground">
-                      {playerState.currentQuality === -1
-                        ? 'Auto'
-                        : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
-                      }
-                    </span>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
               )}
 
-              {/* Subtitles Setting */}
               {playerState.availableSubtitles.length > 0 && (
-                <div
-                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                  onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isSubtitleMenuOpen: true }))} // Example: open submenu
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2 rounded-full bg-green-500/10">
-                      <div className="w-4 h-4 bg-green-500 rounded-sm"></div> {/* Placeholder icon */}
+                <AccordionItem value="subtitles" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span>Subtitles</span>
+                      <span className="text-xs text-gray-400">
+                        {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
+                      </span>
                     </div>
-                    <span className="font-medium">Subtitles</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-muted-foreground">
-                      {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
-                    </span>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-1 pt-2">
+                      <button
+                        onClick={() => changeSubtitle('off')}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          !playerState.currentSubtitle ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        Off
+                      </button>
+                      {playerState.availableSubtitles.map(subtitle => (
+                        <button
+                          key={subtitle.id}
+                          onClick={() => changeSubtitle(subtitle.id)}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {subtitle.label}
+                        </button>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               )}
 
-              {/* Playback Speed Setting */}
-              <div
-                className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isSpeedMenuOpen: true }))} // Example: open submenu
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 rounded-full bg-purple-500/10">
-                    <div className="w-4 h-4 bg-purple-500 rounded-sm"></div> {/* Placeholder icon */}
+              <AccordionItem value="speed" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
+                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span>Playback Speed</span>
+                    <span className="text-xs text-gray-400">
+                      {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
+                    </span>
                   </div>
-                  <span className="font-medium">Playback Speed</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-muted-foreground">
-                    {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
-            </div>
-            <div className="p-4 border-t border-border flex justify-end">
-              <button
-                onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false }))}
-                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
-              >
-                Close
-              </button>
-            </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-1 pt-2">
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                      <button
+                        key={speed}
+                        onClick={() => changeSpeed(speed)}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          playerState.playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {speed === 1 ? 'Normal' : `${speed}x`}
+                      </button>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
-        </div>
-      )}
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 };
