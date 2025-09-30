@@ -1,9 +1,9 @@
-// /src/components/VideoPlayer.tsx - Refined Version
+// /src/components/VideoPlayer.tsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, ChevronRight } from 'lucide-react'; // Added ChevronRight
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { db } from '@/lib/firebase'; // Corrected import
+import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -55,14 +55,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
 
-  // --- Original Player State (from src 18.txt) + Landscape State ---
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
     isMuted: muted,
     isLoading: true,
     error: null as string | null,
     isFullscreen: false,
-    isLandscape: false, // Add landscape state
+    isLandscape: false,
     showControls: true,
     currentTime: 0,
     duration: 0,
@@ -73,10 +72,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     availableSubtitles: [] as SubtitleTrack[],
     currentSubtitle: null as string | null,
     playbackSpeed: 1,
-    // Add states for sub-menus if using flat layout in landscape
-    isQualityMenuOpen: false,
-    isSubtitleMenuOpen: false,
-    isSpeedMenuOpen: false,
   });
 
   // --- Orientation Detection ---
@@ -86,13 +81,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const orientationLandscape = window.screen.orientation?.angle === 90 || window.screen.orientation?.angle === -90;
       const isLandscape = dimensionLandscape || orientationLandscape;
       setPlayerState(prev => ({ ...prev, isLandscape }));
+      if (isLandscape) {
+        document.body.classList.add('landscape-mode');
+      } else {
+        document.body.classList.remove('landscape-mode');
+      }
     };
 
     const handleOrientationChange = () => {
       setTimeout(handleResize, 100);
     };
 
-    handleResize(); // Initial check
+    handleResize();
     window.addEventListener('resize', handleResize);
     if ('screen' in window && 'orientation' in window.screen) {
       window.screen.orientation.addEventListener('change', handleOrientationChange);
@@ -108,24 +108,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  // --- Refined Stream Type Detection ---
+  // --- Player Initialization Logic ---
   const detectStreamType = useCallback((url: string) => {
     let cleanUrl = url;
     let drmInfo = null;
 
-    // Check for DRM parameters using '?|'
     const drmIndex = url.indexOf('?|');
     if (drmIndex !== -1) {
-      // Extract everything before '?|' as the base URL
       cleanUrl = url.substring(0, drmIndex);
-      // Extract everything after '?|' as DRM parameters
-      const drmParamsStr = url.substring(drmIndex + 2); // Skip '?|'
-
+      const drmParamsStr = url.substring(drmIndex + 2);
       if (drmParamsStr) {
         const params = new URLSearchParams(drmParamsStr);
         const drmScheme = params.get('drmScheme');
         const drmLicense = params.get('drmLicense');
-
         if (drmScheme && drmLicense) {
           drmInfo = { scheme: drmScheme, license: drmLicense };
         }
@@ -134,20 +129,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const urlLower = cleanUrl.toLowerCase();
 
-    // Check for DASH first (MPD extension or keywords)
-    if (urlLower.includes('.mpd') || urlLower.includes('manifest') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
+    if (urlLower.includes('.mpd') || urlLower.includes('manifest')) {
       return { type: 'dash', cleanUrl, drmInfo };
     }
-    // Then check for HLS
-    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/') || urlLower.includes('hls')) {
-      return { type: 'hls', cleanUrl, drmInfo };
-    }
-    // Fallback to native for common video formats
-    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
-      return { type: 'native', cleanUrl, drmInfo };
-    }
-
-    // Default to HLS if no extension is found, assuming it might be a generic stream endpoint
     return { type: 'hls', cleanUrl, drmInfo };
   }, []);
 
@@ -203,7 +187,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         initNativePlayer(cleanUrl, video);
       }
     } catch (error) {
-      console.error("Player initialization error:", error); // Log the error for debugging
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
     }
@@ -215,7 +198,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (Hls && Hls.isSupported()) {
         const hls = new Hls({
           enableWorker: true,
-          debug: false, // Set to true for debugging if needed
+          debug: false,
           capLevelToPlayerSize: true,
           maxLoadingDelay: 1,
           maxBufferLength: 15,
@@ -256,7 +239,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (data.fatal) {
             if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-            console.error("HLS Error:", data); // Log HLS errors
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 hls.startLoad();
@@ -288,7 +270,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
 
-      // Basic Shaka Player configuration
       player.configure({
         streaming: {
           bufferingGoal: 15,
@@ -321,14 +302,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         },
       });
 
-      // Configure DRM only if explicitly provided and valid
       if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
         const [keyId, key] = drmInfo.license.split(':');
-        if (keyId && key) { // Validate key parts exist
-          player.configure({ drm: { clearKeys: { [keyId]: key } } });
-        } else {
-           console.warn("Invalid DRM license format provided. Attempting playback without DRM.");
-        }
+        player.configure({ drm: { clearKeys: { [keyId]: key } } });
       }
 
       const onError = (event: any) => {
@@ -338,8 +314,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
         else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
         else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - content may be protected';
-        else errorMessage += ` - Details: ${event.detail.data?.message || 'Unknown'}`; // Add more detail if available
-        console.error("Shaka Player Error:", event); // Log Shaka errors
         setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
         destroyPlayer();
       };
@@ -348,23 +322,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       const tracks = player.getVariantTracks();
-      // Map Shaka tracks to our QualityLevel interface
-      const qualities: QualityLevel[] = tracks
-        .filter((t: any) => t.type === 'variant' && t.kind === 'audio' && t.language === 'und') // Simplified filter
-        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: t.id })); // Use Shaka's track ID
-      // Map Shaka text tracks to our SubtitleTrack interface
-      const textTracks = player.getTextTracks();
-      const subtitles: SubtitleTrack[] = textTracks.map((t: any) => ({ id: t.id.toString(), label: t.label || t.language || 'Unknown', language: t.language || 'unknown' }));
+      const qualities = tracks
+        .filter((t: any) => t.type === 'variant' && t.kind === 'audio' && t.language === 'und')
+        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: i }));
+      const subtitles = player.getTextTracks().map((t: any) => ({ id: t.id.toString(), label: t.label || t.language, language: t.language }));
 
-      video.muted = muted;
-      if (autoPlay) video.play().catch(console.warn);
       setPlayerState(prev => ({
         ...prev,
         isLoading: false,
         error: null,
         availableQualities: qualities,
         availableSubtitles: subtitles,
-        currentQuality: -1, // Shaka ABR is enabled by default
+        currentQuality: -1,
         isMuted: video.muted,
         isPlaying: true,
         showControls: true
@@ -410,7 +379,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return hours > 0 ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}` : `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // --- Player Event Handlers (from src 18.txt) ---
+  // --- Player Event Handlers ---
   const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
@@ -537,7 +506,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [handleDragMove, handleDragEnd]);
 
-  // --- Settings Logic (Using Accordion) ---
+  // --- Settings Logic ---
   const changeQuality = useCallback((qualityId: number) => {
     if (playerTypeRef.current === 'hls' && hlsRef.current) {
       hlsRef.current.currentLevel = qualityId;
@@ -581,9 +550,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setPlayerState(prev => ({ ...prev, playbackSpeed: speed, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
-
-  // Determine if we are in landscape mode for potential layout changes
-  const isLandscapeMode = playerState.isLandscape;
 
   if (playerState.error && !playerState.isLoading) {
     return (
@@ -715,18 +681,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       </div>
 
-      {/* Settings Panel - Accordion (Portrait and Landscape) */}
-      {/* The original Accordion Drawer is maintained for both orientations */}
+      {/* Settings Panel */}
       <Drawer open={playerState.showSettings} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, showSettings: open }))}>
-        <DrawerContent className={`max-h-[80vh] ${isLandscapeMode ? 'landscape-drawer' : ''}`}>
-          <DrawerHeader className={`${isLandscapeMode ? 'landscape-header' : ''}`}>
-            <DrawerTitle>Settings</DrawerTitle>
+        <DrawerContent className={`bg-black/90 border-t border-white/20 text-white outline-none transition-all duration-300 ${playerState.isLandscape ? 'landscape-drawer' : ''}`} onClick={(e) => e.stopPropagation()}>
+          <DrawerHeader className={playerState.isLandscape ? 'landscape-header' : ''}>
+            <DrawerTitle className={`text-center text-white ${playerState.isLandscape ? 'text-sm' : ''}`}>Settings</DrawerTitle>
           </DrawerHeader>
-          <div className={`p-4 overflow-y-auto transition-all duration-300 ${isLandscapeMode ? 'landscape-settings' : ''}`} style={{ maxHeight: isLandscapeMode ? '80vh' : '50vh' }}>
-            <Accordion type="single" collapsible className={`w-full ${isLandscapeMode ? 'landscape-accordion' : ''}`}>
+          <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '80vh' : '50vh' }}>
+            <Accordion type="single" collapsible className={`w-full ${playerState.isLandscape ? 'landscape-accordion' : ''}`}>
               {playerState.availableQualities.length > 0 && (
-                <AccordionItem value="quality" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
-                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
+                <AccordionItem value="quality" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
                     <div className="flex items-center gap-2">
                       <span>Quality</span>
                       <span className="text-xs text-gray-400">
@@ -764,8 +729,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               )}
 
               {playerState.availableSubtitles.length > 0 && (
-                <AccordionItem value="subtitles" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
-                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
+                <AccordionItem value="subtitles" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
                     <div className="flex items-center gap-2">
                       <span>Subtitles</span>
                       <span className="text-xs text-gray-400">
@@ -799,8 +764,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </AccordionItem>
               )}
 
-              <AccordionItem value="speed" className={isLandscapeMode ? 'landscape-accordion-item' : ''}>
-                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${isLandscapeMode ? 'landscape-trigger' : ''}`}>
+              <AccordionItem value="speed" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
                   <div className="flex items-center gap-2">
                     <span>Playback Speed</span>
                     <span className="text-xs text-gray-400">
