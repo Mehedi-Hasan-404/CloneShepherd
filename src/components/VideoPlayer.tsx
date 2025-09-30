@@ -1,5 +1,6 @@
-// /src/components/VideoPlayer.tsx - Fixed Version with Shaka Player Only
+// /src/components/VideoPlayer.tsx - Dual Player Version (HLS.js + Shaka)
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import Hls from 'hls.js'; // --- NEW --- Import HLS.js
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -37,6 +38,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const shakaPlayerRef = useRef<any>(null);
+  const hlsPlayerRef = useRef<Hls | null>(null); // --- NEW --- Ref for HLS.js instance
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
@@ -97,17 +99,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return { type: 'native', cleanUrl, drmInfo };
     }
     
+    // Default to HLS for unknown types
     return { type: 'hls', cleanUrl, drmInfo };
   }, []);
 
+  // --- MODIFIED --- Unified player destruction
   const destroyPlayer = useCallback(() => {
     if (shakaPlayerRef.current) {
       try {
         shakaPlayerRef.current.destroy();
       } catch (e) {
-        console.warn('Error destroying player:', e);
+        console.warn('Error destroying Shaka player:', e);
       }
       shakaPlayerRef.current = null;
+    }
+    if (hlsPlayerRef.current) {
+      try {
+        hlsPlayerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS player:', e);
+      }
+      hlsPlayerRef.current = null;
     }
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
@@ -124,24 +136,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       if (shakaPlayerRef.current) {
-        await shakaPlayerRef.current.destroy();
+         await shakaPlayerRef.current.destroy();
       }
 
       const player = new shaka.default.Player(video);
       shakaPlayerRef.current = player;
 
       player.configure({
-        streaming: {
-          bufferingGoal: 30,
-          rebufferingGoal: 10,
-          bufferBehind: 30,
-        },
-        abr: {
-          enabled: true,
-        },
+        streaming: { bufferingGoal: 30, rebufferingGoal: 10, bufferBehind: 30 },
+        abr: { enabled: true },
       });
 
-      // *** FIXED: Robust DRM Configuration ***
       if (drmInfo && drmInfo.scheme && drmInfo.license) {
         const licenseUrl = drmInfo.license;
         let drmConfig: any = {};
@@ -163,16 +168,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const onError = (event: any) => {
         if (!isMountedRef.current) return;
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-        
         const error = event.detail;
         const errorCode = error?.code || 0;
         let errorMessage = 'Stream playback error';
-        
-        // *** FIXED: More specific error message for DRM license failure ***
-        if (errorCode === 1002) { // LICENSE_REQUEST_FAILED
+        if (errorCode === 1002) {
             errorMessage = 'DRM license request failed. This may be due to a CORS issue, an invalid license URL, or server misconfiguration.';
         } else if (errorCode >= 6000 && errorCode < 7000) {
-          errorMessage = 'Network error - check your connection or the stream URL';
+            errorMessage = 'Network error - check your connection or the stream URL';
         } else if (errorCode >= 4000 && errorCode < 5000) {
           errorMessage = 'Media format not supported or corrupted';
         } else if (errorCode >= 1000 && errorCode < 2000) {
@@ -187,10 +189,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       player.addEventListener('error', onError);
 
-      // *** FIXED: Improved network engine configuration for DRM and CORS ***
       player.getNetworkingEngine()?.registerRequestFilter((type: any, request: any) => {
         request.allowCrossSiteCredentials = true;
-        // Add headers required for many DRM license servers
         if (type === shaka.default.net.NetworkingEngine.RequestType.LICENSE) {
             request.headers['Content-Type'] = 'application/octet-stream';
         }
@@ -228,13 +228,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       setPlayerState(prev => ({
         ...prev,
-        isLoading: false,
-        error: null,
-        availableQualities: qualities,
-        availableSubtitles: subtitles,
-        currentQuality: -1,
-        isMuted: video.muted,
-        isPlaying: !video.paused,
+        isLoading: false, error: null,
+        availableQualities: qualities, availableSubtitles: subtitles,
+        currentQuality: -1, isMuted: video.muted, isPlaying: !video.paused,
         showControls: true,
       }));
 
@@ -249,6 +245,88 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [autoPlay, muted]);
 
+  // --- NEW --- HLS.js player initialization
+  const initHlsPlayer = useCallback(async (url: string, video: HTMLVideoElement) => {
+    return new Promise<() => void>((resolve, reject) => {
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hlsPlayerRef.current = hls;
+
+        const onManifestParsed = (_event: any, data: any) => {
+            if (!isMountedRef.current) return;
+
+            const qualities: QualityLevel[] = data.levels.map((level: any, index: number) => ({
+                height: level.height,
+                bitrate: Math.round(level.bitrate / 1000),
+                id: index,
+            })).sort((a, b) => b.height - a.height);
+            
+            const subtitles: SubtitleTrack[] = data.subtitleTracks.map((track: any, index: number) => ({
+                id: index.toString(),
+                label: track.name || track.lang || 'Unknown',
+                language: track.lang || 'unknown',
+            }));
+
+            setPlayerState(prev => ({
+                ...prev, isLoading: false, error: null,
+                availableQualities: qualities, availableSubtitles: subtitles,
+                currentQuality: -1, // Auto
+            }));
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            startControlsTimer();
+        };
+        
+        const onError = (_event: any, data: any) => {
+            if (!isMountedRef.current) return;
+            if (data.fatal) {
+                console.error('HLS.js Fatal Error:', data);
+                let errorMessage = 'An unknown playback error occurred.';
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        errorMessage = 'A network error occurred while fetching the stream.';
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        errorMessage = 'A media error occurred; the stream might be corrupted.';
+                        break;
+                    default:
+                        errorMessage = `Playback failed: ${data.details}`;
+                }
+                setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
+                if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            }
+        };
+
+        hls.on(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+        hls.on(Hls.Events.ERROR, onError);
+
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        video.muted = muted;
+        if (autoPlay) {
+            video.play().catch(e => console.warn("Autoplay was prevented:", e));
+        }
+        setPlayerState(prev => ({ ...prev, isMuted: video.muted, isPlaying: !video.paused, showControls: true }));
+        
+        resolve(() => {
+            hls.off(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+            hls.off(Hls.Events.ERROR, onError);
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Fallback to native HLS playback on Safari
+        video.src = url;
+        video.muted = muted;
+        if (autoPlay) video.play().catch(console.warn);
+        setPlayerState(prev => ({ ...prev, isLoading: false, isPlaying: !video.paused, showControls: true }));
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        resolve(() => { video.src = ''; });
+      } else {
+        reject(new Error('HLS playback is not supported in this browser.'));
+      }
+    });
+  }, [autoPlay, muted]);
+
+  // --- MODIFIED --- Main player initialization logic
   const initializePlayer = useCallback(async () => {
     if (!streamUrl || !videoRef.current) {
       setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
@@ -259,37 +337,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     destroyPlayer();
     
     setPlayerState(prev => ({
-      ...prev,
-      isLoading: true,
-      error: null,
-      isPlaying: false,
-      showSettings: false,
-      showControls: true,
+      ...prev, isLoading: true, error: null, isPlaying: false, showSettings: false, showControls: true,
     }));
 
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
         setPlayerState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: 'Stream took too long to load. The stream may be offline or unreachable.',
+          ...prev, isLoading: false, error: 'Stream took too long to load. The stream may be offline or unreachable.',
         }));
         destroyPlayer();
       }
     }, PLAYER_LOAD_TIMEOUT);
 
     try {
-      const { cleanUrl, drmInfo } = detectStreamType(streamUrl);
-      await initShakaPlayer(cleanUrl, video, drmInfo);
+      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+
+      if (type === 'hls') {
+        await initHlsPlayer(cleanUrl, video);
+      } else if (type === 'dash' || type === 'native') {
+        await initShakaPlayer(cleanUrl, video, drmInfo);
+      } else {
+        throw new Error('Unsupported stream type');
+      }
     } catch (error: any) {
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       setPlayerState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: error.message || 'Failed to load stream',
+        ...prev, isLoading: false, error: error.message || 'Failed to load stream',
       }));
     }
-  }, [streamUrl, destroyPlayer, detectStreamType, initShakaPlayer]);
+  }, [streamUrl, destroyPlayer, detectStreamType, initHlsPlayer, initShakaPlayer]);
 
   const formatTime = (time: number): string => {
     if (!isFinite(time) || time <= 0) return "0:00";
@@ -302,6 +378,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  // --- MODIFIED --- Unified quality switching
   const changeQuality = useCallback((qualityId: number) => {
     if (shakaPlayerRef.current) {
       if (qualityId === -1) {
@@ -314,11 +391,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
         }
       }
+    } else if (hlsPlayerRef.current) {
+      hlsPlayerRef.current.currentLevel = qualityId; // For HLS.js, -1 is auto
     }
     setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
 
+  // --- MODIFIED --- Unified subtitle switching
   const changeSubtitle = useCallback((subtitleId: string) => {
     if (shakaPlayerRef.current) {
       if (subtitleId === '') {
@@ -331,6 +411,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           shakaPlayerRef.current.setTextTrackVisibility(true);
         }
       }
+    } else if (hlsPlayerRef.current) {
+        // HLS.js uses numeric indices for subtitle tracks
+        const trackIndex = subtitleId === '' ? -1 : parseInt(subtitleId, 10);
+        hlsPlayerRef.current.subtitleTrack = trackIndex;
     }
     setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId, showControls: true }));
     lastActivityRef.current = Date.now();
@@ -449,7 +533,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [playerState.isSeeking, resetControlsTimer]);
-
+  
+  // All remaining code from this point is standard <video> element interaction
+  // or state management, so it does not need to be changed.
+  
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current;
     const progressBar = progressRef.current;
@@ -472,6 +559,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     dragStartRef.current = { isDragging: true, startX: e.clientX };
     
     setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true }));
+
     if (!video.paused) video.pause();
     
     lastActivityRef.current = Date.now();
@@ -546,14 +634,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (screen.orientation && screen.orientation.unlock) {
           screen.orientation.unlock();
         }
-      } else {
+       } else {
         await container.requestFullscreen();
         if (screen.orientation && screen.orientation.lock) {
           try {
             await screen.orientation.lock('landscape');
             setPlayerState(prev => ({ ...prev, isLandscape: true }));
           } catch (e) {
-            console.warn('Orientation lock not supported:', e);
+             console.warn('Orientation lock not supported:', e);
           }
         }
       }
@@ -576,7 +664,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         await video.requestPictureInPicture();
       }
     } catch (error) {
-      console.warn('PiP error:', error);
+       console.warn('PiP error:', error);
     }
     
     setPlayerState(prev => ({ ...prev, showControls: true }));
@@ -699,7 +787,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 togglePlay();
-              }}
+               }}
               className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all"
             >
               <Play size={24} fill="white" className="ml-1" />
@@ -774,7 +862,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   togglePip();
-                }}
+                 }}
                 className="text-white hover:text-blue-300 transition-colors p-2"
                 title="Picture-in-picture"
               >
