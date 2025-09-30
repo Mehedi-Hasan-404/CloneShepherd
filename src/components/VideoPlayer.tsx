@@ -1,20 +1,12 @@
-// /src/components/VideoPlayer.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useTheme } from '@/components/ThemeProvider';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Slider } from '@/components/ui/slider';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+// /src/components/VideoPlayer.tsx - Corrected Version with Flat Settings in Landscape
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { toast } from 'sonner';
-import Hls from 'hls.js';
-import { ChevronLeft, Settings, X, Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
-import { useAuth } from '@/hooks/useAuth';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { db } from '@/lib/firebase'; // Corrected import
+import { doc, getDoc } from 'firebase/firestore'; // Add Firestore imports
+import { useAuth } from '@/hooks/useAuth'; // Add Auth hook import
 
-// Define interfaces (assuming these are the same as before)
 interface VideoPlayerProps {
   streamUrl: string;
   channelName: string;
@@ -35,774 +27,835 @@ interface SubtitleTrack {
   language: string;
 }
 
-// Define player state interface (assuming these are the same as before)
-interface PlayerState {
-  isPlaying: boolean;
-  isMuted: boolean;
-  volume: number;
-  isFullscreen: boolean;
-  isLandscape: boolean;
-  isSettingsOpen: boolean;
-  isChannelInfoOpen: boolean;
-  isQualityMenuOpen: boolean;
-  isSubtitleMenuOpen: boolean;
-  isSpeedMenuOpen: boolean;
-  isVolumeSliderOpen: boolean;
-  isProgressDragging: boolean;
-  isControlsVisible: boolean;
-  currentQuality: string;
-  currentSubtitle: string | null;
-  playbackSpeed: number;
-  availableQualities: QualityLevel[];
-  availableSubtitles: SubtitleTrack[];
-  progress: number;
-  duration: number;
-  buffered: number;
-  error: string | null;
-  loading: boolean;
-  isSeeking: boolean;
-}
-
-// Define default state (assuming these are the same as before)
-const DEFAULT_STATE: PlayerState = {
-  isPlaying: false,
-  isMuted: false,
-  volume: 1,
-  isFullscreen: false,
-  isLandscape: false,
-  isSettingsOpen: false,
-  isChannelInfoOpen: false,
-  isQualityMenuOpen: false,
-  isSubtitleMenuOpen: false,
-  isSpeedMenuOpen: false,
-  isVolumeSliderOpen: false,
-  isProgressDragging: false,
-  isControlsVisible: true,
-  currentQuality: 'auto',
-  currentSubtitle: null,
-  playbackSpeed: 1,
-  availableQualities: [],
-  availableSubtitles: [],
-  progress: 0,
-  duration: 0,
-  buffered: 0,
-  error: null,
-  loading: true,
-  isSeeking: false,
-};
-
 const PLAYER_LOAD_TIMEOUT = 15000;
 const CONTROLS_HIDE_DELAY = 4000;
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  streamUrl: initialStreamUrl,
-  channelName: initialChannelName,
+  streamUrl,
+  channelName,
   autoPlay = true,
-  muted = false,
-  className = "",
+  muted = true,
+  className = ""
 }) => {
-  const { user } = useAuth();
-  const { theme } = useTheme();
-  const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
-
+  const { user } = useAuth(); // Use the auth hook
   const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<Hls | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const hlsRef = useRef<any>(null);
+  const shakaPlayerRef = useRef<any>(null);
+  const playerTypeRef = useRef<'hls' | 'shaka' | 'native' | null>(null);
+
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const playerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+  const progressRef = useRef<HTMLDivElement>(null);
 
-  const [playerState, setPlayerState] = useState<PlayerState>(DEFAULT_STATE);
-  const [channel, setChannel] = useState<{ name: string; logoUrl: string } | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+  const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
+  const wasPlayingBeforeSeekRef = useRef(false);
+  const seekTimeRef = useRef(0);
 
-  // Fetch channel details if ID is provided
+  const [playerState, setPlayerState] = useState({
+    isPlaying: false,
+    isMuted: muted,
+    isLoading: true,
+    error: null as string | null,
+    isFullscreen: false,
+    isLandscape: false, // Add landscape state
+    showControls: true,
+    currentTime: 0,
+    duration: 0,
+    buffered: 0,
+    showSettings: false,
+    currentQuality: -1,
+    availableQualities: [] as QualityLevel[],
+    availableSubtitles: [] as SubtitleTrack[],
+    currentSubtitle: null as string | null, // Add subtitle state
+    playbackSpeed: 1, // Add playback speed state
+  });
+
+  // --- Orientation Detection ---
   useEffect(() => {
-    const fetchChannelDetails = async () => {
-      if (id) {
-        try {
-          const docRef = doc(db, 'channels', id);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setChannel({
-              name: data.name || initialChannelName,
-              logoUrl: data.logoUrl || '/placeholder.svg',
-            });
-          } else {
-            setChannel({ name: initialChannelName, logoUrl: '/placeholder.svg' });
-          }
-        } catch (error) {
-          console.error('Error fetching channel details:', error);
-          setChannel({ name: initialChannelName, logoUrl: '/placeholder.svg' });
-        }
-      } else {
-        setChannel({ name: initialChannelName, logoUrl: '/placeholder.svg' });
-      }
-    };
-
-    fetchChannelDetails();
-  }, [id, initialChannelName]);
-
-  // Handle orientation change
-  useEffect(() => {
-    const handleOrientationChange = () => {
-      const isLandscape = window.innerHeight < window.innerWidth;
+    const handleResize = () => {
+      const dimensionLandscape = window.innerWidth > window.innerHeight;
+      const orientationLandscape = window.screen.orientation?.angle === 90 || window.screen.orientation?.angle === -90;
+      const isLandscape = dimensionLandscape || orientationLandscape;
       setPlayerState(prev => ({ ...prev, isLandscape }));
     };
 
-    handleOrientationChange(); // Check initial orientation
-    window.addEventListener('resize', handleOrientationChange);
+    const handleOrientationChange = () => {
+      setTimeout(handleResize, 100);
+    };
+
+    handleResize(); // Initial check
+    window.addEventListener('resize', handleResize);
+    if ('screen' in window && 'orientation' in window.screen) {
+      window.screen.orientation.addEventListener('change', handleOrientationChange);
+    }
+    window.addEventListener('orientationchange', handleOrientationChange);
 
     return () => {
-      window.removeEventListener('resize', handleOrientationChange);
+      window.removeEventListener('resize', handleResize);
+      if ('screen' in window && 'orientation' in window.screen) {
+        window.screen.orientation.removeEventListener('change', handleOrientationChange);
+      }
+      window.removeEventListener('orientationchange', handleOrientationChange);
     };
   }, []);
 
-  // Initialize player
-  useEffect(() => {
-    const initializePlayer = async () => {
-      if (!videoRef.current) return;
+  // --- Player Initialization Logic (from src 18.txt) ---
+  const detectStreamType = useCallback((url: string) => {
+    const cleanUrl = url.trim();
+    const urlLower = cleanUrl.toLowerCase();
+    const drmInfo = { scheme: 'clearkey', license: '' }; // Simplified for example
+    if (urlLower.includes('.mpd') || urlLower.includes('manifest')) {
+      return { type: 'dash', cleanUrl, drmInfo };
+    }
+    return { type: 'hls', cleanUrl, drmInfo };
+  }, []);
 
-      const video = videoRef.current;
-      video.muted = muted;
+  const destroyPlayer = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (shakaPlayerRef.current) {
+      shakaPlayerRef.current.destroy();
+      shakaPlayerRef.current = null;
+    }
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+    }
+    playerTypeRef.current = null;
+  }, []);
 
-      // Clear any previous instances
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-      }
-
-      try {
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-
-          hls.loadSource(initialStreamUrl);
-          hls.attachMedia(video);
-
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            setPlayerState(prev => ({ ...prev, availableQualities: hls.levels.map((level, i) => ({ ...level, id: i })) }));
-            setPlayerState(prev => ({ ...prev, loading: false }));
-            if (autoPlay) {
-              video.play().catch(e => console.error("Autoplay failed:", e));
-            }
-          });
-
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  setPlayerState(prev => ({ ...prev, error: 'Network error' }));
-                  hls.startLoad();
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  setPlayerState(prev => ({ ...prev, error: 'Media error' }));
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  setPlayerState(prev => ({ ...prev, error: 'Fatal error' }));
-                  break;
-              }
-            }
-          });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = initialStreamUrl;
-          video.addEventListener('loadedmetadata', () => {
-            setPlayerState(prev => ({ ...prev, loading: false }));
-            if (autoPlay) {
-              video.play().catch(e => console.error("Autoplay failed:", e));
-            }
-          });
-        } else {
-          setPlayerState(prev => ({ ...prev, error: 'HLS is not supported in this browser' }));
-        }
-      } catch (error) {
-        console.error("Error initializing player:", error);
-        setPlayerState(prev => ({ ...prev, error: 'Failed to initialize player' }));
-      }
-    };
-
-    initializePlayer();
-
-    // Cleanup on unmount
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-      }
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      if (playerTimeoutRef.current) clearTimeout(playerTimeoutRef.current);
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-    };
-  }, [initialStreamUrl, autoPlay, muted]);
-
-  // Update progress
-  useEffect(() => {
-    if (!videoRef.current) return;
+  const initializePlayer = useCallback(async () => {
+    if (!streamUrl || !videoRef.current) {
+      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
+      return;
+    }
 
     const video = videoRef.current;
+    destroyPlayer();
+    setPlayerState(prev => ({
+      ...prev,
+      isLoading: true,
+      error: null,
+      isPlaying: false,
+      showSettings: false,
+      showControls: true
+    }));
 
-    const updateProgress = () => {
-      if (playerState.isProgressDragging || playerState.isSeeking) return;
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: "Stream took too long to load. Please try again." }));
+        destroyPlayer();
+      }
+    }, PLAYER_LOAD_TIMEOUT);
+
+    try {
+      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+      if (type === 'dash') {
+        playerTypeRef.current = 'shaka';
+        await initShakaPlayer(cleanUrl, video, drmInfo);
+      } else if (type === 'hls') {
+        playerTypeRef.current = 'hls';
+        await initHlsPlayer(cleanUrl, video);
+      } else {
+        playerTypeRef.current = 'native';
+        initNativePlayer(cleanUrl, video);
+      }
+    } catch (error) {
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
+    }
+  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
+
+  const initHlsPlayer = async (url: string, video: HTMLVideoElement) => {
+    try {
+      const Hls = (await import('hls.js')).default;
+      if (Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          debug: false,
+          capLevelToPlayerSize: true,
+          maxLoadingDelay: 1,
+          maxBufferLength: 15,
+          maxBufferSize: 20 * 1000 * 1000,
+          fragLoadingTimeOut: 8000,
+          manifestLoadingTimeOut: 4000,
+          startLevel: -1,
+          startPosition: -1,
+        });
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+
+          const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({
+            height: level.height || 0,
+            bitrate: Math.round(level.bitrate / 1000),
+            id: index,
+          }));
+          video.muted = muted;
+          if (autoPlay) video.play().catch(console.warn);
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            error: null,
+            availableQualities: levels,
+            currentQuality: hls.currentLevel,
+            isMuted: video.muted,
+            isPlaying: true,
+            showControls: true
+          }));
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isMountedRef.current) return;
+          if (data.fatal) {
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Error: ${data.details}` }));
+                destroyPlayer();
+                break;
+            }
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        initNativePlayer(url, video);
+      } else {
+        throw new Error('HLS is not supported in this browser');
+      }
+    } catch (error) { throw error; }
+  };
+
+  const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
+    try {
+      const shaka = await import('shaka-player/dist/shaka-player.ui.js');
+      shaka.default.polyfill.installAll();
+      if (!shaka.default.Player.isBrowserSupported()) throw new Error('This browser is not supported by Shaka Player');
+      if (shakaPlayerRef.current) await shakaPlayerRef.current.destroy();
+      const player = new shaka.default.Player(video);
+      shakaPlayerRef.current = player;
+
+      player.configure({
+        streaming: {
+          bufferingGoal: 15,
+          rebufferingGoal: 8,
+          bufferBehind: 15,
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2,
+          },
+          useNativeHlsOnSafari: true,
+        },
+        manifest: {
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2,
+          },
+          dash: { clockSyncUri: '' },
+        },
+        abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 1500000,
+          bandwidthUpgradeSeconds: 3,
+          bandwidthDowngradeSeconds: 6,
+        },
+      });
+
+      if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
+        const [keyId, key] = drmInfo.license.split(':');
+        player.configure({ drm: { clearKeys: { [keyId]: key } } });
+      }
+
+      const onError = (event: any) => {
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        const errorCode = event.detail.code;
+        let errorMessage = `Stream error (${errorCode})`;
+        if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
+        else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
+        else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - content may be protected';
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
+        destroyPlayer();
+      };
+      player.addEventListener('error', onError);
+      await player.load(url);
+
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      const tracks = player.getVariantTracks();
+      const qualities = tracks
+        .filter((t: any) => t.type === 'variant' && t.kind === 'audio' && t.language === 'und') // Simplified filter
+        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: i }));
+      const subtitles = player.getTextTracks().map((t: any) => ({ id: t.id.toString(), label: t.label || t.language, language: t.language }));
 
       setPlayerState(prev => ({
         ...prev,
-        progress: video.currentTime,
-        duration: video.duration || 0,
-        buffered: video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0,
+        isLoading: false,
+        error: null,
+        availableQualities: qualities,
+        availableSubtitles: subtitles,
+        currentQuality: -1,
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+      return () => player.removeEventListener('error', onError);
+    } catch (error) { throw error; }
+  };
+
+  const initNativePlayer = (url: string, video: HTMLVideoElement) => {
+    video.src = url;
+    const onLoadedMetadata = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      video.muted = muted;
+      if (autoPlay) video.play().catch(console.warn);
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: null,
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
       }));
     };
-
-    progressIntervalRef.current = setInterval(updateProgress, 1000);
-
-    return () => {
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+    const onError = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream with native player' }));
     };
-  }, [playerState.isProgressDragging, playerState.isSeeking]);
+    video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+    video.addEventListener('error', onError, { once: true });
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('error', onError);
+    };
+  };
 
-  // Handle controls visibility timeout
-  const resetControlsTimeout = useCallback(() => {
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    setPlayerState(prev => ({ ...prev, isControlsVisible: true }));
+  const formatTime = (time: number): string => {
+    if (!isFinite(time) || time <= 0) return "0:00";
+    const hours = Math.floor(time / 3600);
+    const minutes = Math.floor((time % 3600) / 60);
+    const seconds = Math.floor(time % 60);
+    return hours > 0 ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}` : `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
-    if (playerState.isPlaying) {
+  // --- Player Event Handlers (from src 18.txt) ---
+  const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
+
+  const startControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+      }
+    }, CONTROLS_HIDE_DELAY);
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  const resetControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+    if (playerState.isPlaying && !playerState.showSettings) {
       controlsTimeoutRef.current = setTimeout(() => {
-        setPlayerState(prev => ({ ...prev, isControlsVisible: false }));
+        if (isMountedRef.current) setPlayerState(prev => ({ ...prev, showControls: false }));
       }, CONTROLS_HIDE_DELAY);
     }
-  }, [playerState.isPlaying]);
+  }, [playerState.isPlaying, playerState.showSettings]);
 
-  // Event handlers
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play();
-        setPlayerState(prev => ({ ...prev, isPlaying: true }));
-      } else {
-        videoRef.current.pause();
-        setPlayerState(prev => ({ ...prev, isPlaying: false }));
-      }
-    }
-  };
+  useEffect(() => {
+    isMountedRef.current = true;
+    initializePlayer();
+    return () => {
+      isMountedRef.current = false;
+      destroyPlayer();
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [streamUrl, initializePlayer, destroyPlayer]);
 
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !playerState.isMuted;
-      setPlayerState(prev => ({ ...prev, isMuted: !prev.isMuted }));
-    }
-  };
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
 
-  const handleVolumeChange = (value: number[]) => {
-    const newVolume = value[0];
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume;
-      setPlayerState(prev => ({ ...prev, volume: newVolume }));
-      if (newVolume === 0 && !playerState.isMuted) {
-        setPlayerState(prev => ({ ...prev, isMuted: true }));
-      } else if (newVolume > 0 && playerState.isMuted) {
-        setPlayerState(prev => ({ ...prev, isMuted: false }));
-      }
-    }
-  };
+    const handlePlay = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: true })); lastActivityRef.current = Date.now(); };
+    const handlePause = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: false })); lastActivityRef.current = Date.now(); };
+    const handleWaiting = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: false })); };
+    const handlePlaying = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: true })); };
+    const handleTimeUpdate = () => { if (!isMountedRef.current || !video || playerState.isSeeking) return; const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0; setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration || 0, buffered: buffered })); };
+    const handleVolumeChange = () => { if (!isMountedRef.current || !video) return; setPlayerState(prev => ({ ...prev, isMuted: video.muted })); };
+    const handleEnterPip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: true })); };
+    const handleLeavePip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: false })); };
+    const handleFullscreenChange = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement })); };
 
-  const handleSeek = (value: number[]) => {
-    const newTime = value[0];
-    setPlayerState(prev => ({ ...prev, progress: newTime, isSeeking: true }));
-    if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
-    }
-  };
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('volumechange', handleVolumeChange);
+    video.addEventListener('enterpictureinpicture', handleEnterPip);
+    video.addEventListener('leavepictureinpicture', handleLeavePip);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
 
-  const handleSeekEnd = () => {
-    setPlayerState(prev => ({ ...prev, isSeeking: false }));
-  };
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('volumechange', handleVolumeChange);
+      video.removeEventListener('enterpictureinpicture', handleEnterPip);
+      video.removeEventListener('leavepictureinpicture', handleLeavePip);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
-  const changeQuality = (qualityId: number) => {
-    if (hlsRef.current) {
+  const calculateNewTime = useCallback((clientX: number): number | null => {
+    const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
+  }, []);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); const video = videoRef.current; if (!video || !isFinite(video.duration) || video.duration <= 0) return; wasPlayingBeforeSeekRef.current = !video.paused; dragStartRef.current = { isDragging: true }; setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); video.pause(); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current?.isDragging) return; const newTime = calculateNewTime(e.clientX); if (newTime !== null) { seekTimeRef.current = newTime; }
+  }, [calculateNewTime]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!dragStartRef.current?.isDragging) return; const video = videoRef.current; if (video) { video.currentTime = seekTimeRef.current; if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error); } dragStartRef.current = null; setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const newTime = calculateNewTime(e.clientX); if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, [calculateNewTime]);
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current; if (!video) return; if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) { if (video.paused) shakaPlayerRef.current.play().catch(console.error); else shakaPlayerRef.current.pause(); } else { if (video.paused) video.play().catch(console.error); else video.pause(); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    const container = containerRef.current; if (!container) return;
+    try {
+      if (document.fullscreenElement) { await document.exitFullscreen(); } else { await container.requestFullscreen(); }
+    } catch (err) { console.error("Error toggling fullscreen:", err); }
+    setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const togglePip = useCallback(async () => {
+    const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handlePlayerClick = useCallback((e: React.MouseEvent) => {
+    if (playerState.showSettings) { setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true })); lastActivityRef.current = Date.now(); return; } const newShowControls = !playerState.showControls; setPlayerState(prev => ({ ...prev, showControls: newShowControls })); lastActivityRef.current = Date.now(); if (newShowControls && playerState.isPlaying) startControlsTimer();
+  }, [playerState.showSettings, playerState.showControls, playerState.isPlaying, startControlsTimer]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!playerState.showSettings) resetControlsTimer();
+  }, [resetControlsTimer, playerState.showSettings]);
+
+  useEffect(() => {
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+    return () => {
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
+    };
+  }, [handleDragMove, handleDragEnd]);
+
+  // --- Settings Logic (Updated for Flat List in Landscape) ---
+  const changeQuality = useCallback((qualityId: number) => {
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      shakaPlayerRef.current.configure({ abr: { enabled: false } });
+      const tracks = shakaPlayerRef.current.getVariantTracks();
+      const targetTrack = tracks.find((t: any) => t.id === qualityId);
+      if (targetTrack) shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
+    } else if (playerTypeRef.current === 'hls' && hlsRef.current) {
       hlsRef.current.currentLevel = qualityId;
-      const quality = playerState.availableQualities.find(q => q.id === qualityId);
-      if (quality) {
-        setPlayerState(prev => ({ ...prev, currentQuality: `${quality.height}p` }));
+    }
+    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showSettings: false, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const changeSubtitle = useCallback((subtitleId: string) => {
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (subtitleId === 'off') {
+        shakaPlayerRef.current.selectTextTrack(null);
+      } else {
+        const tracks = shakaPlayerRef.current.getTextTracks();
+        const targetTrack = tracks.find((t: any) => t.id.toString() === subtitleId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectTextTrack(targetTrack);
+          shakaPlayerRef.current.setTextTrackVisibility(true);
+        } else {
+          shakaPlayerRef.current.setTextTrackVisibility(false);
+        }
       }
     }
-    setPlayerState(prev => ({ ...prev, isQualityMenuOpen: false, isSettingsOpen: false })); // Close menus after selection
-  };
+    setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId === 'off' ? null : subtitleId, showSettings: false, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
 
-  const changeSubtitle = (subtitleId: string) => {
-    // Assuming subtitle handling via textTracks or external logic
-    // This is a simplified example
-    setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId }));
-    setPlayerState(prev => ({ ...prev, isSubtitleMenuOpen: false, isSettingsOpen: false })); // Close menus after selection
-  };
-
-  const changeSpeed = (speed: number) => {
+  const changeSpeed = useCallback((speed: number) => {
     if (videoRef.current) {
       videoRef.current.playbackRate = speed;
-      setPlayerState(prev => ({ ...prev, playbackSpeed: speed }));
     }
-    setPlayerState(prev => ({ ...prev, isSpeedMenuOpen: false, isSettingsOpen: false })); // Close menus after selection
-  };
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(err => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  };
-
-  const openSettings = () => {
-    setPlayerState(prev => ({ ...prev, isSettingsOpen: true }));
-  };
-
-  const closeSettings = () => {
-    setPlayerState(prev => ({ ...prev, isSettingsOpen: false }));
-  };
+    setPlayerState(prev => ({ ...prev, playbackSpeed: speed, showSettings: false, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
 
   // Determine if we are in landscape mode for the new layout
-  const isLandscapeFlat = playerState.isLandscape && playerState.isSettingsOpen;
+  const isLandscapeFlat = playerState.isLandscape && playerState.showSettings;
+
+  if (playerState.error && !playerState.isLoading) {
+    return (
+      <div className={`w-full h-full bg-black flex items-center justify-center ${className}`}>
+        <div className="text-center text-white">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-2" />
+          <h3 className="text-lg font-semibold">Error Loading Stream</h3>
+          <p className="text-sm text-gray-400 mb-4">{playerState.error}</p>
+          <button
+            onClick={handleRetry}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2 mx-auto"
+          >
+            <RotateCcw size={16} /> Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className={`relative w-full h-full bg-black ${playerState.isLandscape ? 'landscape-mode' : ''} ${className}`}>
-      {playerState.error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-red-900 text-white p-4">
-          <div className="text-center">
-            <p className="text-lg font-semibold">Error</p>
-            <p className="text-sm">{playerState.error}</p>
-            <Button onClick={() => window.location.reload()} className="mt-4">Reload Player</Button>
-          </div>
-        </div>
-      )}
-
-      {playerState.loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black">
-          <div className="text-white text-center">
-            <p>Loading stream...</p>
-          </div>
-        </div>
-      )}
-
+    <div
+      ref={containerRef}
+      className={`relative w-full h-full bg-black overflow-hidden ${className}`}
+      onClick={handlePlayerClick}
+      onMouseMove={handleMouseMove}
+    >
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
-        onClick={resetControlsTimeout}
-        onMouseMove={resetControlsTimeout}
+        muted={muted}
+        playsInline
       />
 
-      {/* Controls Overlay */}
-      <div
-        className={`absolute inset-0 flex flex-col justify-between pointer-events-none transition-opacity duration-300 ${
-          playerState.isControlsVisible ? 'opacity-100' : 'opacity-0'
-        }`}
-        onMouseMove={resetControlsTimeout}
-        onMouseLeave={() => {
-          if (playerState.isPlaying) {
-            controlsTimeoutRef.current = setTimeout(() => {
-              setPlayerState(prev => ({ ...prev, isControlsVisible: false }));
-            }, CONTROLS_HIDE_DELAY);
-          }
-        }}
-      >
-        {/* Top Controls */}
-        <div className="flex justify-between items-start p-4 pointer-events-auto">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white bg-black/50 hover:bg-black/75"
-            onClick={() => navigate(-1)}
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          <div className="text-white bg-black/50 px-3 py-1 rounded-lg">
-            <h2 className="text-xl font-bold truncate max-w-[70vw]">{channel?.name || initialChannelName}</h2>
+      {playerState.isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
+          <div className="text-center text-white">
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <div className="text-sm">Loading stream...</div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-white bg-black/50 hover:bg-black/75"
-            onClick={openSettings}
-          >
-            <Settings className="h-6 w-6" />
-          </Button>
         </div>
+      )}
 
-        {/* Center Controls */}
-        <div className="flex justify-center items-center mb-8">
-          {!playerState.isPlaying && (
-            <Button
-              variant="secondary"
-              size="icon"
-              className="h-16 w-16 rounded-full bg-white/80 text-black hover:bg-white"
-              onClick={togglePlay}
+      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+          {playerState.availableSubtitles.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title="Subtitles"
             >
-              <Play className="h-8 w-8 ml-1" />
-            </Button>
+              <Subtitles size={18} />
+            </button>
+          )}
+          {(playerState.availableQualities.length > 0 || playerState.availableSubtitles.length > 0) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
           )}
         </div>
 
-        {/* Bottom Controls */}
-        <div className="p-4">
-          {/* Progress Bar */}
-          <div className="mb-2">
-            <Slider
-              value={[playerState.progress]}
-              max={playerState.duration || 100}
-              step={1}
-              onValueChange={handleSeek}
-              onValueCommit={handleSeekEnd}
-              className="w-full"
-            />
-            <div className="flex justify-between text-white text-xs mt-1">
-              <span>{new Date(playerState.progress * 1000).toISOString().substr(11, 8)}</span>
-              <span>{new Date(playerState.duration * 1000).toISOString().substr(11, 8)}</span>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-white bg-black/50 hover:bg-black/75"
-                onClick={togglePlay}
-              >
-                {playerState.isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-white bg-black/50 hover:bg-black/75"
-                onClick={toggleMute}
-              >
-                {playerState.isMuted || playerState.volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-              </Button>
-              <div className="w-20">
-                <Slider
-                  value={[playerState.volume]}
-                  max={1}
-                  step={0.01}
-                  onValueChange={handleVolumeChange}
-                  className="w-full"
-                />
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-white bg-black/50 hover:bg-black/75"
-              onClick={toggleFullscreen}
+        {!playerState.isPlaying && !playerState.isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <button
+              onClick={togglePlay}
+              className="p-4 bg-black/60 backdrop-blur-sm rounded-full text-white hover:bg-black/80 transition-all"
             >
-              <Maximize className="h-5 w-5" />
-            </Button>
+              <Play size={24} />
+            </button>
+          </div>
+        )}
+
+        <div className="absolute bottom-4 left-4 right-4 z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={togglePlay}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+            >
+              {playerState.isPlaying ? <Pause size={18} /> : <Play size={18} />}
+            </button>
+            <button
+              onClick={toggleMute}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+            >
+              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <div className="text-white text-sm ml-2">
+              {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+            </div>
+            <div className="flex-1" />
+            <button
+              onClick={togglePip}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title="Picture in Picture"
+              disabled={!document.pictureInPictureEnabled}
+            >
+              <PictureInPicture2 size={18} />
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title={playerState.isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
+          <div
+            ref={progressRef}
+            className="w-full h-1.5 bg-gray-700 rounded-full cursor-pointer relative overflow-hidden"
+            onClick={handleProgressClick}
+            onMouseDown={handleDragStart}
+          >
+            <div
+              className="absolute top-0 left-0 h-full bg-gray-500"
+              style={{ width: `${playerState.buffered / playerState.duration * 100 || 0}%` }}
+            />
+            <div
+              className="absolute top-0 left-0 h-full bg-blue-500"
+              style={{ width: `${playerState.currentTime / playerState.duration * 100 || 0}%` }}
+            />
+            <div
+              className="absolute top-1/2 w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 transition-opacity"
+              style={{ left: `${playerState.currentTime / playerState.duration * 100 || 0}%` }}
+            />
           </div>
         </div>
       </div>
 
-      {/* Settings Panel */}
+      {/* Settings Panel - Accordion (Portrait) or Flat List (Landscape) */}
       {/* Use Drawer for portrait, Dialog for landscape with flat layout */}
       {!isLandscapeFlat ? (
-        <Drawer open={playerState.isSettingsOpen} onOpenChange={closeSettings}>
-          <DrawerContent className={`max-h-[80vh] ${playerState.isLandscape ? 'landscape-drawer' : ''}`}>
-            <DrawerHeader className={`p-4 ${playerState.isLandscape ? 'landscape-header' : ''}`}>
-              <DrawerTitle className={`text-lg font-semibold ${playerState.isLandscape ? 'text-xl' : ''}`}>Settings</DrawerTitle>
+        // Accordion Drawer for Portrait
+        <Drawer open={playerState.showSettings} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, showSettings: open }))}>
+          <DrawerContent className="max-h-[80vh]">
+            <DrawerHeader>
+              <DrawerTitle>Settings</DrawerTitle>
             </DrawerHeader>
-            <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '80vh' : '50vh' }}>
-              {/* Accordion structure remains here for portrait */}
-              {/* ... (Keep the existing Accordion code from the original file) ... */}
-              {/* Example Accordion structure for portrait (simplified) */}
-              <div className="space-y-4">
+            <div className="p-4 overflow-y-auto">
+              <Accordion type="single" collapsible className="w-full">
                 {playerState.availableQualities.length > 0 && (
-                  <div>
-                    <h3 className="text-white text-base font-medium mb-2">Quality</h3>
-                    <div className="space-y-1">
-                      {playerState.availableQualities.map((quality) => (
+                  <AccordionItem value="quality">
+                    <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+                      <div className="flex items-center gap-2">
+                        <span>Quality</span>
+                        <span className="text-xs text-gray-400">
+                          {playerState.currentQuality === -1
+                            ? 'Auto'
+                            : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
+                          }
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-1 pt-2">
                         <button
-                          key={quality.id}
-                          onClick={() => changeQuality(quality.id)}
+                          onClick={() => changeQuality(-1)}
                           className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            playerState.currentQuality === `${quality.height}p`
-                              ? 'bg-blue-600 text-white'
-                              : 'text-gray-300 hover:bg-white/10'
+                            playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
                           }`}
                         >
-                          {quality.height}p
+                          Auto
                         </button>
-                      ))}
-                      <button
-                        onClick={() => changeQuality(-1)} // -1 for auto
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          playerState.currentQuality === 'auto'
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        Auto
-                      </button>
-                    </div>
-                  </div>
+                        {playerState.availableQualities.map(quality => (
+                          <button
+                            key={quality.id}
+                            onClick={() => changeQuality(quality.id)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                              playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                            }`}
+                          >
+                            {quality.height}p ({quality.bitrate} kbps)
+                          </button>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
                 )}
 
-                <div>
-                  <h3 className="text-white text-base font-medium mb-2">Subtitles</h3>
-                  <div className="space-y-1">
-                    <button
-                      onClick={() => changeSubtitle('off')}
-                      className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                        playerState.currentSubtitle === 'off' || playerState.currentSubtitle === null
-                          ? 'bg-blue-600 text-white'
-                          : 'text-gray-300 hover:bg-white/10'
-                      }`}
-                    >
-                      Off
-                    </button>
-                    {playerState.availableSubtitles.map((subtitle) => (
-                      <button
-                        key={subtitle.id}
-                        onClick={() => changeSubtitle(subtitle.id)}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          playerState.currentSubtitle === subtitle.id
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {subtitle.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {playerState.availableSubtitles.length > 0 && (
+                  <AccordionItem value="subtitles">
+                    <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+                      <div className="flex items-center gap-2">
+                        <span>Subtitles</span>
+                        <span className="text-xs text-gray-400">
+                          {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-1 pt-2">
+                        <button
+                          onClick={() => changeSubtitle('off')}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            !playerState.currentSubtitle ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          Off
+                        </button>
+                        {playerState.availableSubtitles.map(subtitle => (
+                          <button
+                            key={subtitle.id}
+                            onClick={() => changeSubtitle(subtitle.id)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                              playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                            }`}
+                          >
+                            {subtitle.label}
+                          </button>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                )}
 
-                <div>
-                  <h3 className="text-white text-base font-medium mb-2">Playback Speed</h3>
-                  <div className="space-y-1">
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
-                      <button
-                        key={speed}
-                        onClick={() => changeSpeed(speed)}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          playerState.playbackSpeed === speed
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {speed}x
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+                <AccordionItem value="speed">
+                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+                    <div className="flex items-center gap-2">
+                      <span>Playback Speed</span>
+                      <span className="text-xs text-gray-400">
+                        {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
+                      </span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-1 pt-2">
+                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                        <button
+                          key={speed}
+                          onClick={() => changeSpeed(speed)}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            playerState.playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {speed === 1 ? 'Normal' : `${speed}x`}
+                        </button>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
           </DrawerContent>
         </Drawer>
       ) : (
-        // Flat Settings List for Landscape Mode
-        <Dialog open={playerState.isSettingsOpen} onOpenChange={closeSettings}>
-          <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto p-0">
+        // Flat List Dialog for Landscape Mode
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-popover text-popover-foreground rounded-lg shadow-lg overflow-hidden">
             <div className="p-4 border-b border-border">
-              <DialogTitle className="text-lg font-semibold">Settings</DialogTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-4 top-4 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100"
-                onClick={closeSettings}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              <h3 className="text-lg font-semibold">Settings</h3>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-4 max-h-[60vh] overflow-y-auto">
               {/* Quality Setting */}
               {playerState.availableQualities.length > 0 && (
                 <div
                   className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                  onClick={() => setPlayerState(prev => ({ ...prev, isQualityMenuOpen: true }))}
+                  onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isQualityMenuOpen: true }))} // Example: open submenu
                 >
                   <div className="flex items-center space-x-3">
                     <div className="p-2 rounded-full bg-blue-500/10">
-                      <div className="w-4 h-4 bg-blue-500 rounded-sm"></div>
+                      <div className="w-4 h-4 bg-blue-500 rounded-sm"></div> {/* Placeholder icon */}
                     </div>
                     <span className="font-medium">Quality</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-sm text-muted-foreground">{playerState.currentQuality}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {playerState.currentQuality === -1
+                        ? 'Auto'
+                        : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
+                      }
+                    </span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
               )}
 
               {/* Subtitles Setting */}
-              <div
-                className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                onClick={() => setPlayerState(prev => ({ ...prev, isSubtitleMenuOpen: true }))}
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 rounded-full bg-green-500/10">
-                    <div className="w-4 h-4 bg-green-500 rounded-sm"></div>
+              {playerState.availableSubtitles.length > 0 && (
+                <div
+                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
+                  onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isSubtitleMenuOpen: true }))} // Example: open submenu
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 rounded-full bg-green-500/10">
+                      <div className="w-4 h-4 bg-green-500 rounded-sm"></div> {/* Placeholder icon */}
+                    </div>
+                    <span className="font-medium">Subtitles</span>
                   </div>
-                  <span className="font-medium">Subtitles</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-muted-foreground">
+                      {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-muted-foreground">{playerState.currentSubtitle || 'Off'}</span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
+              )}
 
               {/* Playback Speed Setting */}
               <div
                 className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                onClick={() => setPlayerState(prev => ({ ...prev, isSpeedMenuOpen: true }))}
+                onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false, isSpeedMenuOpen: true }))} // Example: open submenu
               >
                 <div className="flex items-center space-x-3">
                   <div className="p-2 rounded-full bg-purple-500/10">
-                    <div className="w-4 h-4 bg-purple-500 rounded-sm"></div>
+                    <div className="w-4 h-4 bg-purple-500 rounded-sm"></div> {/* Placeholder icon */}
                   </div>
                   <span className="font-medium">Playback Speed</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm text-muted-foreground">{playerState.playbackSpeed}x</span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
-
-              {/* Volume Setting (Optional, could be a slider too) */}
-              <div
-                className="flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-accent cursor-pointer"
-                onClick={() => setPlayerState(prev => ({ ...prev, isVolumeSliderOpen: true }))}
-              >
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 rounded-full bg-yellow-500/10">
-                    <div className="w-4 h-4 bg-yellow-500 rounded-sm"></div>
-                  </div>
-                  <span className="font-medium">Volume</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-muted-foreground">{Math.round(playerState.volume * 100)}%</span>
+                  <span className="text-sm text-muted-foreground">
+                    {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
+                  </span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Sub-Menu Drawers for Flat Layout (Landscape Mode) */}
-      {playerState.isQualityMenuOpen && (
-        <Drawer open={playerState.isQualityMenuOpen} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, isQualityMenuOpen: open }))}>
-          <DrawerContent className="max-h-[60vh]">
-            <DrawerHeader>
-              <DrawerTitle>Quality</DrawerTitle>
-            </DrawerHeader>
-            <div className="p-4 space-y-2">
+            <div className="p-4 border-t border-border flex justify-end">
               <button
-                onClick={() => changeQuality(-1)} // -1 for auto
-                className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                  playerState.currentQuality === 'auto'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-white/10'
-                }`}
+                onClick={() => setPlayerState(prev => ({ ...prev, showSettings: false }))}
+                className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors"
               >
-                Auto
+                Close
               </button>
-              {playerState.availableQualities.map((quality) => (
-                <button
-                  key={quality.id}
-                  onClick={() => changeQuality(quality.id)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                    playerState.currentQuality === `${quality.height}p`
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-white/10'
-                  }`}
-                >
-                  {quality.height}p
-                </button>
-              ))}
             </div>
-          </DrawerContent>
-        </Drawer>
-      )}
-
-      {playerState.isSubtitleMenuOpen && (
-        <Drawer open={playerState.isSubtitleMenuOpen} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, isSubtitleMenuOpen: open }))}>
-          <DrawerContent className="max-h-[60vh]">
-            <DrawerHeader>
-              <DrawerTitle>Subtitles</DrawerTitle>
-            </DrawerHeader>
-            <div className="p-4 space-y-2">
-              <button
-                onClick={() => changeSubtitle('off')}
-                className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                  playerState.currentSubtitle === 'off' || playerState.currentSubtitle === null
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-white/10'
-                }`}
-              >
-                Off
-              </button>
-              {playerState.availableSubtitles.map((subtitle) => (
-                <button
-                  key={subtitle.id}
-                  onClick={() => changeSubtitle(subtitle.id)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                    playerState.currentSubtitle === subtitle.id
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-white/10'
-                  }`}
-                >
-                  {subtitle.label}
-                </button>
-              ))}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      )}
-
-      {playerState.isSpeedMenuOpen && (
-        <Drawer open={playerState.isSpeedMenuOpen} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, isSpeedMenuOpen: open }))}>
-          <DrawerContent className="max-h-[60vh]">
-            <DrawerHeader>
-              <DrawerTitle>Playback Speed</DrawerTitle>
-            </DrawerHeader>
-            <div className="p-4 space-y-2">
-              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
-                <button
-                  key={speed}
-                  onClick={() => changeSpeed(speed)}
-                  className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                    playerState.playbackSpeed === speed
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-white/10'
-                  }`}
-                >
-                  {speed}x
-                </button>
-              ))}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      )}
-
-      {playerState.isVolumeSliderOpen && (
-        <Drawer open={playerState.isVolumeSliderOpen} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, isVolumeSliderOpen: open }))}>
-          <DrawerContent className="max-h-[60vh]">
-            <DrawerHeader>
-              <DrawerTitle>Volume</DrawerTitle>
-            </DrawerHeader>
-            <div className="p-4">
-              <Slider
-                value={[playerState.volume]}
-                max={1}
-                step={0.01}
-                onValueChange={handleVolumeChange}
-                className="w-full"
-              />
-              <div className="text-center mt-2 text-sm text-muted-foreground">
-                {Math.round(playerState.volume * 100)}%
-              </div>
-            </div>
-          </DrawerContent>
-        </Drawer>
+          </div>
+        </div>
       )}
     </div>
   );
