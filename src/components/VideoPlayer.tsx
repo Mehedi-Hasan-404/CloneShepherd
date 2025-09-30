@@ -2,7 +2,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -63,6 +62,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isSeeking: false,
     isPipActive: false,
     isLandscape: false,
+    expandedSection: '' as string,
   });
 
   const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
@@ -828,103 +828,158 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </DrawerHeader>
           
           <div className="p-4 overflow-y-auto" style={{ maxHeight: playerState.isLandscape ? '100vh' : '50vh' }}>
-            <Accordion type="single" collapsible className="w-full">
+            {/* Custom Accordion Implementation */}
+            <div className="w-full space-y-2">
               {playerState.availableQualities.length > 0 && (
-                <AccordionItem value="quality">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+                <div className="border-b border-white/20">
+                  <button
+                    onClick={() => setPlayerState(prev => ({ 
+                      ...prev, 
+                      expandedSection: prev.expandedSection === 'quality' ? '' : 'quality' 
+                    }))}
+                    className="flex items-center justify-between w-full py-4 text-white text-base font-medium hover:no-underline"
+                  >
                     Quality
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-1 pt-2">
-                      <button
-                        onClick={() => changeQuality(-1)}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          playerState.currentQuality === -1
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        Auto
-                      </button>
-                      {playerState.availableQualities.map((quality) => (
+                    <svg
+                      className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+                        playerState.expandedSection === 'quality' ? 'rotate-180' : ''
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {playerState.expandedSection === 'quality' && (
+                    <div className="pb-4 pt-0">
+                      <div className="space-y-1 pt-2">
                         <button
-                          key={quality.id}
-                          onClick={() => changeQuality(quality.id)}
+                          onClick={() => changeQuality(-1)}
                           className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            playerState.currentQuality === quality.id
+                            playerState.currentQuality === -1
                               ? 'bg-blue-600 text-white'
                               : 'text-gray-300 hover:bg-white/10'
                           }`}
                         >
-                          {quality.height}p ({quality.bitrate} kbps)
+                          Auto
                         </button>
-                      ))}
+                        {playerState.availableQualities.map((quality) => (
+                          <button
+                            key={quality.id}
+                            onClick={() => changeQuality(quality.id)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                              playerState.currentQuality === quality.id
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-300 hover:bg-white/10'
+                            }`}
+                          >
+                            {quality.height}p ({quality.bitrate} kbps)
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
+                  )}
+                </div>
               )}
               
               {playerState.availableSubtitles.length > 0 && (
-                <AccordionItem value="subtitles">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
+                <div className="border-b border-white/20">
+                  <button
+                    onClick={() => setPlayerState(prev => ({ 
+                      ...prev, 
+                      expandedSection: prev.expandedSection === 'subtitles' ? '' : 'subtitles' 
+                    }))}
+                    className="flex items-center justify-between w-full py-4 text-white text-base font-medium hover:no-underline"
+                  >
                     Subtitles
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-1 pt-2">
-                      <button
-                        onClick={() => changeSubtitle('')}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          playerState.currentSubtitle === ''
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        Off
-                      </button>
-                      {playerState.availableSubtitles.map((subtitle) => (
+                    <svg
+                      className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+                        playerState.expandedSection === 'subtitles' ? 'rotate-180' : ''
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {playerState.expandedSection === 'subtitles' && (
+                    <div className="pb-4 pt-0">
+                      <div className="space-y-1 pt-2">
                         <button
-                          key={subtitle.id}
-                          onClick={() => changeSubtitle(subtitle.id)}
+                          onClick={() => changeSubtitle('')}
                           className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                            playerState.currentSubtitle === subtitle.id
+                            playerState.currentSubtitle === ''
                               ? 'bg-blue-600 text-white'
                               : 'text-gray-300 hover:bg-white/10'
                           }`}
                         >
-                          {subtitle.label}
+                          Off
+                        </button>
+                        {playerState.availableSubtitles.map((subtitle) => (
+                          <button
+                            key={subtitle.id}
+                            onClick={() => changeSubtitle(subtitle.id)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                              playerState.currentSubtitle === subtitle.id
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-300 hover:bg-white/10'
+                            }`}
+                          >
+                            {subtitle.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <div className="border-b border-white/20">
+                <button
+                  onClick={() => setPlayerState(prev => ({ 
+                    ...prev, 
+                    expandedSection: prev.expandedSection === 'speed' ? '' : 'speed' 
+                  }))}
+                  className="flex items-center justify-between w-full py-4 text-white text-base font-medium hover:no-underline"
+                >
+                  Playback Speed
+                  <svg
+                    className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+                      playerState.expandedSection === 'speed' ? 'rotate-180' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {playerState.expandedSection === 'speed' && (
+                  <div className="pb-4 pt-0">
+                    <div className="space-y-1 pt-2">
+                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => {
+                            if (videoRef.current) videoRef.current.playbackRate = speed;
+                            setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            videoRef.current?.playbackRate === speed
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {speed === 1 ? 'Normal' : `${speed}x`}
                         </button>
                       ))}
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
-              )}
-              
-              <AccordionItem value="playback-speed">
-                <AccordionTrigger className="text-white text-base font-medium hover:no-underline">
-                  Playback Speed
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-1 pt-2">
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
-                      <button
-                        key={speed}
-                        onClick={() => {
-                          if (videoRef.current) videoRef.current.playbackRate = speed;
-                          setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
-                          videoRef.current?.playbackRate === speed
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {speed === 1 ? 'Normal' : `${speed}x`}
-                      </button>
-                    ))}
                   </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+                )}
+              </div>
+            </div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -933,3 +988,4 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 };
 
 export default VideoPlayer;
+                
