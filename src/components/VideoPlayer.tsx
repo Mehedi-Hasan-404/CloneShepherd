@@ -1,5 +1,5 @@
 // /src/components/VideoPlayer.tsx - Now with Accordion Menu
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, a part of the user interface library { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
