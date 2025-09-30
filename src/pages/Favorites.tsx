@@ -57,7 +57,7 @@ const Favorites = () => {
         )}
       </div>
 
-      <div className="channel-grid">
+      <div className="channels-grid-4">
         {favorites
           .sort((a, b) => b.addedAt - a.addedAt)
           .map(channel => (

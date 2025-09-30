@@ -68,6 +68,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentSubtitle: '',
     isSeeking: false,
     isPipActive: false,
+    isLandscape: false,
   });
 
   const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
@@ -346,9 +347,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleVolumeChange = () => { if (!isMountedRef.current || !video) return; setPlayerState(prev => ({ ...prev, isMuted: video.muted })); };
     const handleEnterPip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPipActive: true })); };
     const handleLeavePip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPipActive: false })); };
-    const handleFullscreenChange = () => { if (!isMountedRef.current) return; const isFullscreen = !!document.fullscreenElement; setPlayerState(prev => ({ ...prev, isFullscreen })); if (isFullscreen) resetControlsTimer(); };
-    video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip); document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); document.removeEventListener('fullscreenchange', handleFullscreenChange); };
+    const handleFullscreenChange = () => { 
+      if (!isMountedRef.current) return; 
+      const isFullscreen = !!document.fullscreenElement; 
+      const isLandscape = isFullscreen && window.innerWidth > window.innerHeight;
+      setPlayerState(prev => ({ ...prev, isFullscreen, isLandscape })); 
+      if (isFullscreen) {
+        resetControlsTimer();
+        // Force landscape orientation class on body when entering fullscreen
+        if (isLandscape) {
+          document.body.classList.add('landscape-mode');
+        }
+      } else {
+        document.body.classList.remove('landscape-mode');
+        setPlayerState(prev => ({ ...prev, isLandscape: false }));
+      }
+    };
+    const handleResize = () => {
+      if (!isMountedRef.current) return;
+      const isFullscreen = !!document.fullscreenElement;
+      if (isFullscreen) {
+        const isLandscape = window.innerWidth > window.innerHeight;
+        setPlayerState(prev => ({ ...prev, isLandscape }));
+        if (isLandscape) {
+          document.body.classList.add('landscape-mode');
+        } else {
+          document.body.classList.remove('landscape-mode');
+        }
+      }
+    };
+    video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip); document.addEventListener('fullscreenchange', handleFullscreenChange); window.addEventListener('resize', handleResize);
+    return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); document.removeEventListener('fullscreenchange', handleFullscreenChange); window.removeEventListener('resize', handleResize); };
   }, [playerState.isSeeking, resetControlsTimer]);
 
   const calculateNewTime = useCallback((clientX: number): number | null => {
@@ -436,17 +465,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       </div>
       <Drawer open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({...prev, showSettings: isOpen }))}>
-        <DrawerContent className="bg-black/90 border-t border-white/20 text-white outline-none" onClick={(e) => e.stopPropagation()}>
+        <DrawerContent className={`bg-black/90 border-t border-white/20 text-white outline-none transition-all duration-300 ${playerState.isLandscape ? 'landscape-drawer' : ''}`} onClick={(e) => e.stopPropagation()}>
           <DrawerHeader>
             <DrawerTitle className="text-center text-white">Settings</DrawerTitle>
           </DrawerHeader>
-          <div className="p-4 overflow-y-auto" style={{ maxHeight: '50vh' }}>
-            <Accordion type="single" collapsible className="w-full">
+          <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '70vh' : '50vh' }}>
+            <Accordion type="single" collapsible className={`w-full ${playerState.isLandscape ? 'landscape-accordion' : ''}`}>
               {playerState.availableQualities.length > 0 && (
-                <AccordionItem value="quality">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Quality</AccordionTrigger>
+                <AccordionItem value="quality" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span>Quality</span>
+                      <span className="text-xs text-gray-400">{playerState.currentQuality === -1 ? 'Auto (720p)' : playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height + 'p' || 'Auto (720p)'}</span>
+                    </div>
+                  </AccordionTrigger>
                   <AccordionContent>
-                    <div className="space-y-1 pt-2">
+                    <div className={`space-y-1 pt-2 ${playerState.isLandscape ? 'landscape-options' : ''}`}>
                       <button onClick={() => changeQuality(-1)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>Auto</button>
                       {playerState.availableQualities.map((quality) => (
                         <button key={quality.id} onClick={() => changeQuality(quality.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>{quality.height}p ({quality.bitrate} kbps)</button>
@@ -456,10 +490,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </AccordionItem>
               )}
               {playerState.availableSubtitles.length > 0 && (
-                <AccordionItem value="subtitles">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Subtitles</AccordionTrigger>
+                <AccordionItem value="subtitles" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span>Subtitles</span>
+                      <span className="text-xs text-gray-400">{playerState.currentSubtitle === '' ? 'Off' : playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label || 'Off'}</span>
+                    </div>
+                  </AccordionTrigger>
                   <AccordionContent>
-                    <div className="space-y-1 pt-2">
+                    <div className={`space-y-1 pt-2 ${playerState.isLandscape ? 'landscape-options' : ''}`}>
                       <button onClick={() => changeSubtitle('')} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === '' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>Off</button>
                       {playerState.availableSubtitles.map((subtitle) => (
                         <button key={subtitle.id} onClick={() => changeSubtitle(subtitle.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>{subtitle.label}</button>
@@ -468,8 +507,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </AccordionContent>
                 </AccordionItem>
               )}
-              <AccordionItem value="playback-speed">
-                <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Playback Speed</AccordionTrigger>
+              <AccordionItem value="playback-speed" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span>Playback Speed</span>
+                    <span className="text-xs text-gray-400">{videoRef.current?.playbackRate === 1 ? 'Normal' : `${videoRef.current?.playbackRate || 1}x`}</span>
+                  </div>
+                </AccordionTrigger>
                 <AccordionContent>
                   <div className="space-y-1 pt-2">
                     {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
@@ -478,10 +522,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </div>
                 </AccordionContent>
               </AccordionItem>
-              <AccordionItem value="audio">
-                <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Audio</AccordionTrigger>
+              <AccordionItem value="audio" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span>Audio</span>
+                    <span className="text-xs text-gray-400">Default</span>
+                  </div>
+                </AccordionTrigger>
                 <AccordionContent>
-                  <div className="space-y-1 pt-2">
+                  <div className={`space-y-1 pt-2 ${playerState.isLandscape ? 'landscape-options' : ''}`}>
                     <button className="w-full text-left px-3 py-2 text-sm rounded bg-blue-600 text-white">Default</button>
                   </div>
                 </AccordionContent>
