@@ -1,753 +1,790 @@
-/* /src/index.css */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+// /src/components/VideoPlayer.tsx
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '@/hooks/useAuth';
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-/* IPTV Streaming App Design System */
-:root {
-  /* Core App Colors - Dark Mode */
-  --bg-primary: 0 0% 4%;
-  --bg-secondary: 0 0% 10%;
-  --bg-tertiary: 0 0% 12%;
-  --text-primary: 0 0% 88%;
-  --text-secondary: 0 0% 80%;
-  --accent: 0 73% 60%;
-  --accent-hover: 0 100% 50%;
-  --accent-muted: 0 73% 60%;
-
-  /* UI Elements */
-  --border: 0 0% 20%;
-  --input: 0 0% 15%;
-  --ring: 0 73% 60%;
-  --card: 0 0% 10%;
-  --card-foreground: 0 0% 88%;
-
-  /* Component Specific */
-  --progress-color: 0 100% 50%;
-  --buffered-color: 0 0% 40%;
-  --live-indicator: 0 73% 60%;
-  --channel-number-bg: 0 0% 0%;
-  --channel-number-color: 0 0% 100%;
-
-  /* Shadows and Effects */
-  --shadow-sm: 0 2px 4px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 20px hsl(var(--accent) / 0.3);
-
-  /* Layout */
-  --header-height: 60px;
-  --bottom-nav-height: 70px;
-  --sidebar-width: 280px;
-  --border-radius: 12px;
-  --border-radius-sm: 8px;
-
-  /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
-  --transition-slow: 350ms ease;
-
-  /* Design System Colors */
-  --background: var(--bg-primary);
-  --foreground: var(--text-primary);
-  --primary: var(--accent);
-  --primary-foreground: 0 0% 100%;
-  --secondary: var(--bg-secondary);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--bg-tertiary);
-  --muted-foreground: var(--text-secondary);
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --radius: var(--border-radius);
-
-  /* Additional shadcn/ui variables */
-  --popover: var(--bg-secondary);
-  --popover-foreground: var(--text-primary);
-  --accent-color: var(--accent);
-  --accent-foreground: 0 0% 100%;
+interface VideoPlayerProps {
+  streamUrl: string;
+  channelName: string;
+  autoPlay?: boolean;
+  muted?: boolean;
+  className?: string;
 }
 
-/* Light Mode */
-[data-theme="light"] {
-  /* Core App Colors - Light Mode */
-  --bg-primary: 0 0% 98%;
-  --bg-secondary: 0 0% 94%;
-  --bg-tertiary: 0 0% 90%;
-  --text-primary: 0 0% 12%;
-  --text-secondary: 0 0% 20%;
-  --accent: 0 73% 60%;
-  --accent-hover: 0 100% 50%;
-  --accent-muted: 0 73% 60%;
-
-  /* UI Elements */
-  --border: 0 0% 80%;
-  --input: 0 0% 94%;
-  --ring: 0 73% 60%;
-  --card: 0 0% 100%;
-  --card-foreground: 0 0% 12%;
-
-  /* Design System Colors */
-  --background: var(--bg-primary);
-  --foreground: var(--text-primary);
-  --primary: var(--accent);
-  --primary-foreground: 0 0% 100%;
-  --secondary: var(--bg-secondary);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--bg-tertiary);
-  --muted-foreground: var(--text-secondary);
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-
-  /* Additional shadcn/ui variables */
-  --popover: var(--bg-secondary);
-  --popover-foreground: var(--text-primary);
-  --accent-color: var(--accent);
-  --accent-foreground: 0 0% 100%;
+interface QualityLevel {
+  height: number;
+  bitrate: number;
+  id: number;
 }
 
-@layer base {
-  * {
-    @apply border-border;
+interface SubtitleTrack {
+  id: string;
+  label: string;
+  language: string;
+}
+
+const PLAYER_LOAD_TIMEOUT = 15000;
+const CONTROLS_HIDE_DELAY = 4000;
+
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  streamUrl,
+  channelName,
+  autoPlay = true,
+  muted = true,
+  className = ""
+}) => {
+  const { user } = useAuth();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const hlsRef = useRef<any>(null);
+  const shakaPlayerRef = useRef<any>(null);
+  const playerTypeRef = useRef<'hls' | 'shaka' | 'native' | null>(null);
+
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+  const progressRef = useRef<HTMLDivElement>(null);
+
+  const lastActivityRef = useRef<number>(Date.now());
+  const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
+  const wasPlayingBeforeSeekRef = useRef(false);
+  const seekTimeRef = useRef(0);
+
+  const [playerState, setPlayerState] = useState({
+    isPlaying: false,
+    isMuted: muted,
+    isLoading: true,
+    error: null as string | null,
+    isFullscreen: false,
+    isLandscape: false,
+    showControls: true,
+    currentTime: 0,
+    duration: 0,
+    buffered: 0,
+    showSettings: false,
+    currentQuality: -1,
+    availableQualities: [] as QualityLevel[],
+    availableSubtitles: [] as SubtitleTrack[],
+    currentSubtitle: null as string | null,
+    playbackSpeed: 1,
+  });
+
+  // --- Orientation Detection ---
+  useEffect(() => {
+    const handleResize = () => {
+      const dimensionLandscape = window.innerWidth > window.innerHeight;
+      const orientationLandscape = window.screen.orientation?.angle === 90 || window.screen.orientation?.angle === -90;
+      const isLandscape = dimensionLandscape || orientationLandscape;
+      setPlayerState(prev => ({ ...prev, isLandscape }));
+      if (isLandscape) {
+        document.body.classList.add('landscape-mode');
+      } else {
+        document.body.classList.remove('landscape-mode');
+      }
+    };
+
+    const handleOrientationChange = () => {
+      setTimeout(handleResize, 100);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    if ('screen' in window && 'orientation' in window.screen) {
+      window.screen.orientation.addEventListener('change', handleOrientationChange);
+    }
+    window.addEventListener('orientationchange', handleOrientationChange);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if ('screen' in window && 'orientation' in window.screen) {
+        window.screen.orientation.removeEventListener('change', handleOrientationChange);
+      }
+      window.removeEventListener('orientationchange', handleOrientationChange);
+    };
+  }, []);
+
+  // --- Player Initialization Logic ---
+  const detectStreamType = useCallback((url: string) => {
+    let cleanUrl = url;
+    let drmInfo = null;
+
+    const drmIndex = url.indexOf('?|');
+    if (drmIndex !== -1) {
+      cleanUrl = url.substring(0, drmIndex);
+      const drmParamsStr = url.substring(drmIndex + 2);
+      if (drmParamsStr) {
+        const params = new URLSearchParams(drmParamsStr);
+        const drmScheme = params.get('drmScheme');
+        const drmLicense = params.get('drmLicense');
+        if (drmScheme && drmLicense) {
+          drmInfo = { scheme: drmScheme, license: drmLicense };
+        }
+      }
+    }
+
+    const urlLower = cleanUrl.toLowerCase();
+
+    if (urlLower.includes('.mpd') || urlLower.includes('manifest')) {
+      return { type: 'dash', cleanUrl, drmInfo };
+    }
+    return { type: 'hls', cleanUrl, drmInfo };
+  }, []);
+
+  const destroyPlayer = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (shakaPlayerRef.current) {
+      shakaPlayerRef.current.destroy();
+      shakaPlayerRef.current = null;
+    }
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+    }
+    playerTypeRef.current = null;
+  }, []);
+
+  const initializePlayer = useCallback(async () => {
+    if (!streamUrl || !videoRef.current) {
+      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
+      return;
+    }
+
+    const video = videoRef.current;
+    destroyPlayer();
+    setPlayerState(prev => ({
+      ...prev,
+      isLoading: true,
+      error: null,
+      isPlaying: false,
+      showSettings: false,
+      showControls: true
+    }));
+
+    loadingTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: "Stream took too long to load. Please try again." }));
+        destroyPlayer();
+      }
+    }, PLAYER_LOAD_TIMEOUT);
+
+    try {
+      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+      if (type === 'dash') {
+        playerTypeRef.current = 'shaka';
+        await initShakaPlayer(cleanUrl, video, drmInfo);
+      } else if (type === 'hls') {
+        playerTypeRef.current = 'hls';
+        await initHlsPlayer(cleanUrl, video);
+      } else {
+        playerTypeRef.current = 'native';
+        initNativePlayer(cleanUrl, video);
+      }
+    } catch (error) {
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
+    }
+  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
+
+  const initHlsPlayer = async (url: string, video: HTMLVideoElement) => {
+    try {
+      const Hls = (await import('hls.js')).default;
+      if (Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          debug: false,
+          capLevelToPlayerSize: true,
+          maxLoadingDelay: 1,
+          maxBufferLength: 15,
+          maxBufferSize: 20 * 1000 * 1000,
+          fragLoadingTimeOut: 8000,
+          manifestLoadingTimeOut: 4000,
+          startLevel: -1,
+          startPosition: -1,
+        });
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isMountedRef.current) return;
+          if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+
+          const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({
+            height: level.height || 0,
+            bitrate: Math.round(level.bitrate / 1000),
+            id: index,
+          }));
+          video.muted = muted;
+          if (autoPlay) video.play().catch(console.warn);
+          setPlayerState(prev => ({
+            ...prev,
+            isLoading: false,
+            error: null,
+            availableQualities: levels,
+            currentQuality: hls.currentLevel,
+            isMuted: video.muted,
+            isPlaying: true,
+            showControls: true
+          }));
+        });
+
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isMountedRef.current) return;
+          if (data.fatal) {
+            if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Error: ${data.details}` }));
+                destroyPlayer();
+                break;
+            }
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        initNativePlayer(url, video);
+      } else {
+        throw new Error('HLS is not supported in this browser');
+      }
+    } catch (error) { throw error; }
+  };
+
+  const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
+    try {
+      const shaka = await import('shaka-player/dist/shaka-player.ui.js');
+      shaka.default.polyfill.installAll();
+      if (!shaka.default.Player.isBrowserSupported()) throw new Error('This browser is not supported by Shaka Player');
+      if (shakaPlayerRef.current) await shakaPlayerRef.current.destroy();
+      const player = new shaka.default.Player(video);
+      shakaPlayerRef.current = player;
+
+      player.configure({
+        streaming: {
+          bufferingGoal: 15,
+          rebufferingGoal: 8,
+          bufferBehind: 15,
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2,
+          },
+          useNativeHlsOnSafari: true,
+        },
+        manifest: {
+          retryParameters: {
+            timeout: 4000,
+            maxAttempts: 2,
+            baseDelay: 300,
+            backoffFactor: 1.3,
+            fuzzFactor: 0.2,
+          },
+          dash: { clockSyncUri: '' },
+        },
+        abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 1500000,
+          bandwidthUpgradeSeconds: 3,
+          bandwidthDowngradeSeconds: 6,
+        },
+      });
+
+      if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
+        const [keyId, key] = drmInfo.license.split(':');
+        player.configure({ drm: { clearKeys: { [keyId]: key } } });
+      }
+
+      const onError = (event: any) => {
+        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+        const errorCode = event.detail.code;
+        let errorMessage = `Stream error (${errorCode})`;
+        if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
+        else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
+        else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - content may be protected';
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
+        destroyPlayer();
+      };
+      player.addEventListener('error', onError);
+      await player.load(url);
+
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      const tracks = player.getVariantTracks();
+      const qualities = tracks
+        .filter((t: any) => t.type === 'variant' && t.kind === 'audio' && t.language === 'und')
+        .map((t: any, i: number) => ({ height: t.videoHeight || 0, bitrate: Math.round((t.bandwidth || 0) / 1000), id: i }));
+      const subtitles = player.getTextTracks().map((t: any) => ({ id: t.id.toString(), label: t.label || t.language, language: t.language }));
+
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: null,
+        availableQualities: qualities,
+        availableSubtitles: subtitles,
+        currentQuality: -1,
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+      return () => player.removeEventListener('error', onError);
+    } catch (error) { throw error; }
+  };
+
+  const initNativePlayer = (url: string, video: HTMLVideoElement) => {
+    video.src = url;
+    const onLoadedMetadata = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      video.muted = muted;
+      if (autoPlay) video.play().catch(console.warn);
+      setPlayerState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: null,
+        isMuted: video.muted,
+        isPlaying: true,
+        showControls: true
+      }));
+    };
+    const onError = () => {
+      if (!isMountedRef.current) return;
+      if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream with native player' }));
+    };
+    video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+    video.addEventListener('error', onError, { once: true });
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('error', onError);
+    };
+  };
+
+  const formatTime = (time: number): string => {
+    if (!isFinite(time) || time <= 0) return "0:00";
+    const hours = Math.floor(time / 3600);
+    const minutes = Math.floor((time % 3600) / 60);
+    const seconds = Math.floor(time % 60);
+    return hours > 0 ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}` : `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // --- Player Event Handlers ---
+  const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
+
+  const startControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+        setPlayerState(prev => ({ ...prev, showControls: false }));
+      }
+    }, CONTROLS_HIDE_DELAY);
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  const resetControlsTimer = useCallback(() => {
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+    if (playerState.isPlaying && !playerState.showSettings) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) setPlayerState(prev => ({ ...prev, showControls: false }));
+      }, CONTROLS_HIDE_DELAY);
+    }
+  }, [playerState.isPlaying, playerState.showSettings]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    initializePlayer();
+    return () => {
+      isMountedRef.current = false;
+      destroyPlayer();
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [streamUrl, initializePlayer, destroyPlayer]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handlePlay = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: true })); lastActivityRef.current = Date.now(); };
+    const handlePause = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: false })); lastActivityRef.current = Date.now(); };
+    const handleWaiting = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: false })); };
+    const handlePlaying = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isPlaying: true })); };
+    const handleTimeUpdate = () => { if (!isMountedRef.current || !video || playerState.isSeeking) return; const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0; setPlayerState(prev => ({ ...prev, currentTime: video.currentTime, duration: video.duration || 0, buffered: buffered })); };
+    const handleVolumeChange = () => { if (!isMountedRef.current || !video) return; setPlayerState(prev => ({ ...prev, isMuted: video.muted })); };
+    const handleEnterPip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: true })); };
+    const handleLeavePip = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: false })); };
+    const handleFullscreenChange = () => { if (!isMountedRef.current) return; setPlayerState(prev => ({ ...prev, isFullscreen: !!document.fullscreenElement })); };
+
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('volumechange', handleVolumeChange);
+    video.addEventListener('enterpictureinpicture', handleEnterPip);
+    video.addEventListener('leavepictureinpicture', handleLeavePip);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('volumechange', handleVolumeChange);
+      video.removeEventListener('enterpictureinpicture', handleEnterPip);
+      video.removeEventListener('leavepictureinpicture', handleLeavePip);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const calculateNewTime = useCallback((clientX: number): number | null => {
+    const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
+  }, []);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); const video = videoRef.current; if (!video || !isFinite(video.duration) || video.duration <= 0) return; wasPlayingBeforeSeekRef.current = !video.paused; dragStartRef.current = { isDragging: true }; setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); video.pause(); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!dragStartRef.current?.isDragging) return; const newTime = calculateNewTime(e.clientX); if (newTime !== null) { seekTimeRef.current = newTime; }
+  }, [calculateNewTime]);
+
+  const handleDragEnd = useCallback(() => {
+    if (!dragStartRef.current?.isDragging) return; const video = videoRef.current; if (video) { video.currentTime = seekTimeRef.current; if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error); } dragStartRef.current = null; setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const newTime = calculateNewTime(e.clientX); if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, [calculateNewTime]);
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current; if (!video) return; if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) { if (video.paused) shakaPlayerRef.current.play().catch(console.error); else shakaPlayerRef.current.pause(); } else { if (video.paused) video.play().catch(console.error); else video.pause(); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    const container = containerRef.current; if (!container) return;
+    try {
+      if (document.fullscreenElement) { await document.exitFullscreen(); } else { await container.requestFullscreen(); }
+    } catch (err) { console.error("Error toggling fullscreen:", err); }
+    setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const togglePip = useCallback(async () => {
+    const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+  }, []);
+
+  const handlePlayerClick = useCallback((e: React.MouseEvent) => {
+    if (playerState.showSettings) { setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true })); lastActivityRef.current = Date.now(); return; } const newShowControls = !playerState.showControls; setPlayerState(prev => ({ ...prev, showControls: newShowControls })); lastActivityRef.current = Date.now(); if (newShowControls && playerState.isPlaying) startControlsTimer();
+  }, [playerState.showSettings, playerState.showControls, playerState.isPlaying, startControlsTimer]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!playerState.showSettings) resetControlsTimer();
+  }, [resetControlsTimer, playerState.showSettings]);
+
+  useEffect(() => {
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+    return () => {
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
+    };
+  }, [handleDragMove, handleDragEnd]);
+
+  // --- Settings Logic ---
+  const changeQuality = useCallback((qualityId: number) => {
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
+      hlsRef.current.currentLevel = qualityId;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (qualityId === -1) {
+        shakaPlayerRef.current.configure({ abr: { enabled: true } });
+      } else {
+        shakaPlayerRef.current.configure({ abr: { enabled: false } });
+        const tracks = shakaPlayerRef.current.getVariantTracks();
+        const targetTrack = tracks.find((t: any) => t.id === qualityId);
+        if (targetTrack) shakaPlayerRef.current.selectVariantTrack(targetTrack, true);
+      }
+    }
+    setPlayerState(prev => ({ ...prev, currentQuality: qualityId, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const changeSubtitle = useCallback((subtitleId: string) => {
+    if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      if (subtitleId === 'off') {
+        shakaPlayerRef.current.selectTextTrack(null);
+      } else {
+        const tracks = shakaPlayerRef.current.getTextTracks();
+        const targetTrack = tracks.find((t: any) => t.id.toString() === subtitleId);
+        if (targetTrack) {
+          shakaPlayerRef.current.selectTextTrack(targetTrack);
+          shakaPlayerRef.current.setTextTrackVisibility(true);
+        } else {
+          shakaPlayerRef.current.setTextTrackVisibility(false);
+        }
+      }
+    }
+    setPlayerState(prev => ({ ...prev, currentSubtitle: subtitleId === 'off' ? null : subtitleId, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const changeSpeed = useCallback((speed: number) => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed;
+    }
+    setPlayerState(prev => ({ ...prev, playbackSpeed: speed, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  if (playerState.error && !playerState.isLoading) {
+    return (
+      <div className={`w-full h-full bg-black flex items-center justify-center ${className}`}>
+        <div className="text-center text-white">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-500 mb-2" />
+          <h3 className="text-lg font-semibold">Error Loading Stream</h3>
+          <p className="text-sm text-gray-400 mb-4">{playerState.error}</p>
+          <button
+            onClick={handleRetry}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2 mx-auto"
+          >
+            <RotateCcw size={16} /> Retry
+          </button>
+        </div>
+      </div>
+    );
   }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
 
-/* Base Styles */
-body {
-  margin: 0;
-  padding: 0;
-  font-family: 'Inter', sans-serif;
-  overflow: hidden; /* Prevent default scrolling on the body for app layout */
-  background-color: #000; /* Ensure default background is black */
-}
-
-/* Loading Spinner */
-.lds-ring {
-  display: inline-block;
-  position: relative;
-  width: 80px;
-  height: 80px;
-}
-.lds-ring div {
-  box-sizing: border-box;
-  display: block;
-  position: absolute;
-  width: 64px;
-  height: 64px;
-  margin: 8px;
-  border: 8px solid #fff;
-  border-radius: 50%;
-  animation: lds-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-  border-color: #3b82f6 transparent transparent transparent;
-}
-.lds-ring div:nth-child(1) {
-  animation-delay: -0.45s;
-}
-.lds-ring div:nth-child(2) {
-  animation-delay: -0.3s;
-}
-.lds-ring div:nth-child(3) {
-  animation-delay: -0.15s;
-}
-@keyframes lds-ring {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* Aspect Ratio */
-.aspect-video {
-  aspect-ratio: 16 / 9;
-}
-
-/* Sidebar */
-.sidebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: var(--sidebar-width);
-  height: 100vh;
-  background: hsl(var(--bg-secondary));
-  transform: translateX(-100%);
-  transition: transform var(--transition-normal);
-  z-index: 100;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.sidebar-open {
-  transform: translateX(0);
-}
-
-.sidebar-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 99;
-  display: block; /* Visible when sidebar is open */
-}
-
-.sidebar-close {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  color: hsl(var(--text-primary));
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-}
-
-.sidebar-content {
-  padding: 2rem 1.5rem;
-  padding-top: 4rem; /* Account for close button */
-  color: hsl(var(--text-primary));
-}
-
-.sidebar-content h2 {
-  margin-top: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-
-.menu-section {
-  margin-bottom: 1.5rem;
-}
-
-.menu-section h3 {
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: hsl(var(--text-secondary));
-  margin-bottom: 0.5rem;
-  padding-left: 0.5rem;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: var(--border-radius-sm);
-  color: hsl(var(--text-primary));
-  text-decoration: none;
-  transition: background-color var(--transition-fast);
-  width: 100%;
-  justify-content: flex-start;
-  text-align: left;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.menu-item:hover,
-.menu-item.active {
-  background-color: hsl(var(--accent) / 0.1);
-  color: hsl(var(--accent));
-}
-
-.menu-item i {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-/* Channel Grid */
-.channels-grid-4 {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-}
-
-.channels-grid-3 {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-}
-
-.channels-grid-2 {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-}
-
-.channel-card {
-  background: hsl(var(--card));
-  border-radius: var(--border-radius);
-  overflow: hidden;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-  cursor: pointer;
-  position: relative; /* For potential badges or overlays */
-}
-
-.channel-card:hover {
-  transform: scale(1.03);
-  box-shadow: var(--shadow-md);
-}
-
-.channel-card.landscape {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem;
-}
-
-.channel-card.landscape .channel-image {
-  width: 80px;
-  height: 45px;
-  flex-shrink: 0;
-}
-
-.channel-card.landscape .channel-info {
-  flex-grow: 1;
-}
-
-.channel-image {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  display: block; /* Remove space below image */
-}
-
-.channel-info {
-  padding: 0.75rem;
-}
-
-.channel-card.landscape .channel-info {
-  padding: 0;
-}
-
-.channel-name {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: hsl(var(--text-primary));
-  margin: 0.25rem 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.channel-category {
-  font-size: 0.75rem;
-  color: hsl(var(--text-secondary));
-  margin: 0;
-}
-
-.channel-number-badge {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  background-color: hsl(var(--channel-number-bg));
-  color: hsl(var(--channel-number-color));
-  border-radius: 50%;
-  width: 1.75rem;
-  height: 1.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: bold;
-  z-index: 2;
-}
-
-.channel-status-badge {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background-color: hsl(var(--live-indicator));
-  color: white;
-  border-radius: 1rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-
-/* Video Player */
-.video-player-container {
-  width: 100vw;
-  height: 100vh;
-  position: relative;
-  background-color: #000;
-  overflow: hidden;
-}
-
-.video-player video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* Or 'cover' depending on preference */
-}
-
-/* Controls */
-.controls-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  pointer-events: none; /* Allow clicks through when controls are hidden */
-  transition: opacity var(--transition-fast);
-  padding: 1rem;
-}
-
-.controls-overlay.visible {
-  pointer-events: auto; /* Enable clicks when controls are visible */
-}
-
-.top-controls,
-.bottom-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  z-index: 10; /* Ensure controls are above video */
-}
-
-.center-controls {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-top: -2rem; /* Adjust based on play button size */
-  z-index: 10;
-}
-
-.progress-container {
-  width: 100%;
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-/* Progress Bar */
-.progress-bar {
-  width: 100%;
-  height: 4px;
-  background-color: hsl(var(--muted));
-  border-radius: 2px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progress-buffered,
-.progress-played {
-  position: absolute;
-  height: 100%;
-  top: 0;
-  left: 0;
-}
-
-.progress-buffered {
-  background-color: hsl(var(--buffered-color));
-  z-index: 1;
-}
-
-.progress-played {
-  background-color: hsl(var(--progress-color));
-  z-index: 2;
-  transition: width 0.1s ease; /* Smooth transition for playhead */
-}
-
-.progress-handle {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 12px;
-  height: 12px;
-  background-color: hsl(var(--progress-color));
-  border-radius: 50%;
-  z-index: 3;
-  cursor: grab;
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.progress-container:hover .progress-handle {
-  opacity: 1;
-}
-
-.progress-handle:active {
-  cursor: grabbing;
-}
-
-.time-display {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.75rem;
-  color: hsl(var(--text-secondary));
-  margin-top: 0.25rem;
-}
-
-/* Settings Panel */
-.settings-panel {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
-  border-top-left-radius: var(--radius);
-  border-top-right-radius: var(--radius);
-  max-height: 70vh;
-  overflow-y: auto;
-  transform: translateY(100%);
-  transition: transform var(--transition-normal);
-  z-index: 20;
-  padding: 1rem;
-}
-
-.settings-panel.open {
-  transform: translateY(0);
-}
-
-.settings-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
-}
-
-.settings-section {
-  margin-bottom: 1.5rem;
-}
-
-.settings-section h3 {
-  font-size: 1rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: hsl(var(--text-primary));
-}
-
-.settings-option {
-  display: block;
-  width: 100%;
-  padding: 0.5rem 1rem;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--border-radius-sm);
-  margin-bottom: 0.25rem;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-}
-
-.settings-option:hover {
-  background: hsl(var(--accent) / 0.1);
-  color: hsl(var(--accent));
-}
-
-.settings-option.selected {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
-}
-
-/* Responsive Adjustments */
-@media (min-width: 768px) {
-  .channels-grid-4 {
-    grid-template-columns: repeat(6, 1fr);
-  }
-  .channels-grid-3 {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .channels-grid-2 {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 1024px) {
-  .channels-grid-4 {
-    grid-template-columns: repeat(8, 1fr);
-  }
-  .channels-grid-3 {
-    grid-template-columns: repeat(6, 1fr);
-  }
-  .channels-grid-2 {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-/* Landscape Mode Specific Styles (Added for VideoPlayer) */
-.landscape-mode {
-  /* Add any specific landscape container styles if needed */
-}
-
-.landscape-drawer {
-  /* Override default drawer styles for landscape */
-  height: auto !important; /* Allow height to be determined by content */
-  max-height: 80vh; /* Set a max height relative to viewport */
-  /* Optional: Adjust width if needed, maybe use a percentage */
-  /* width: 80%; */
-  /* left: 10%; */ /* Center horizontally if width is reduced */
-  /* Remove bottom positioning if it's causing issues */
-  /* bottom: auto; */
-  /* top: 10vh; */ /* Position from top instead */
-  border-radius: var(--radius);
-  margin: 10vh auto; /* Center vertically with margin */
-  max-width: 500px; /* Limit width on very wide screens */
-}
-
-.landscape-header {
-  /* Adjust header styles for landscape */
-  padding: 1rem !important; /* Ensure consistent padding */
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.landscape-settings {
-  /* Adjust settings content styles for landscape */
-  max-height: calc(80vh - 60px); /* Account for header height */
-  padding: 1rem !important; /* Ensure consistent padding */
-  overflow-y: auto; /* Ensure scrollability if content overflows */
-}
-
-.landscape-accordion {
-  /* Adjust accordion container styles */
-  display: grid;
-  grid-template-columns: 1fr 1fr; /* Example: 2 columns */
-  gap: 1rem;
-  width: 100%;
-}
-
-.landscape-accordion-item {
-  /* Adjust individual accordion item styles */
-  margin-bottom: 0;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--border-radius-sm);
-  overflow: hidden;
-}
-
-.landscape-trigger {
-  /* Adjust accordion trigger styles */
-  padding: 0.75rem !important;
-  font-size: 0.9rem !important;
-  justify-content: flex-start !important; /* Align text left */
-}
-
-.landscape-options {
-  /* Adjust options list styles */
-  padding: 0.5rem !important;
-  max-height: 150px !important; /* Limit height */
-  overflow-y: auto !important; /* Make scrollable */
-}
-
-.landscape-options button {
-  /* Adjust option button styles */
-  padding: 0.5rem !important;
-  font-size: 0.85rem !important;
-  width: 100% !important;
-  justify-content: flex-start !important; /* Align text left */
-  margin-bottom: 0.1rem !important;
-}
-
-/* Error Page */
-.error-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  background-color: #000;
-  color: white;
-  text-align: center;
-  padding: 2rem;
-}
-
-.error-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  color: #ef4444; /* Red-500 */
-}
-
-.error-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.error-message {
-  font-size: 1rem;
-  color: #9ca3af; /* Gray-400 */
-  margin-bottom: 1.5rem;
-}
-
-.error-actions {
-  display: flex;
-  gap: 1rem;
-}
-
-/* Loading Skeleton */
-.skeleton {
-  background: hsl(var(--muted));
-  border-radius: var(--border-radius-sm);
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-/* Utility Classes */
-.w-fit {
-  width: fit-content;
-}
-
-.h-fit {
-  height: fit-content;
-}
-
-/* Fix for shadcn/ui specific potential issues */
-/* Ensure shadcn/ui components render correctly within the app's theme */
-:where(.dark *) {
-  --background: var(--bg-primary);
-  --foreground: var(--text-primary);
-  --primary: var(--accent);
-  --primary-foreground: 0 0% 100%;
-  --secondary: var(--bg-secondary);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--bg-tertiary);
-  --muted-foreground: var(--text-secondary);
-  --card: var(--bg-secondary);
-  --card-foreground: var(--text-primary);
-  --popover: var(--bg-secondary);
-  --popover-foreground: var(--text-primary);
-  --accent-color: var(--accent);
-  --accent-foreground: 0 0% 100%;
-  --border: var(--border);
-  --input: var(--input);
-  --ring: var(--ring);
-  --radius: var(--border-radius);
-}
-
-/* Ensure text contrast in various contexts */
-.text-primary-foreground {
-  color: hsl(var(--primary-foreground));
-}
-.text-secondary-foreground {
-  color: hsl(var(--secondary-foreground));
-}
-.text-muted-foreground {
-  color: hsl(var(--muted-foreground));
-}
-.text-accent-foreground {
-  color: hsl(var(--accent-foreground));
-}
-.text-destructive-foreground {
-  color: hsl(var(--destructive-foreground));
-}
+  return (
+    <div
+      ref={containerRef}
+      className={`relative w-full h-full bg-black overflow-hidden ${className}`}
+      onClick={handlePlayerClick}
+      onMouseMove={handleMouseMove}
+    >
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        muted={muted}
+        playsInline
+      />
+
+      {playerState.isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
+          <div className="text-center text-white">
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <div className="text-sm">Loading stream...</div>
+          </div>
+        </div>
+      )}
+
+      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+          {/* Always show the Settings icon */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }}
+            className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+
+        {!playerState.isPlaying && !playerState.isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <button
+              onClick={togglePlay}
+              className="p-4 bg-black/60 backdrop-blur-sm rounded-full text-white hover:bg-black/80 transition-all"
+            >
+              <Play size={24} />
+            </button>
+          </div>
+        )}
+
+        <div className="absolute bottom-4 left-4 right-4 z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              onClick={togglePlay}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+            >
+              {playerState.isPlaying ? <Pause size={18} /> : <Play size={18} />}
+            </button>
+            <button
+              onClick={toggleMute}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+            >
+              {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <div className="text-white text-sm ml-2">
+              {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+            </div>
+            <div className="flex-1" />
+            <button
+              onClick={togglePip}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title="Picture in Picture"
+              disabled={!document.pictureInPictureEnabled}
+            >
+              <PictureInPicture2 size={18} />
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all"
+              title={playerState.isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
+          <div
+            ref={progressRef}
+            className="w-full h-1.5 bg-gray-700 rounded-full cursor-pointer relative overflow-hidden"
+            onClick={handleProgressClick}
+            onMouseDown={handleDragStart}
+          >
+            <div
+              className="absolute top-0 left-0 h-full bg-gray-500"
+              style={{ width: `${playerState.buffered / playerState.duration * 100 || 0}%` }}
+            />
+            <div
+              className="absolute top-0 left-0 h-full bg-blue-500"
+              style={{ width: `${playerState.currentTime / playerState.duration * 100 || 0}%` }}
+            />
+            <div
+              className="absolute top-1/2 w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 transition-opacity"
+              style={{ left: `${playerState.currentTime / playerState.duration * 100 || 0}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Settings Panel */}
+      <Drawer open={playerState.showSettings} onOpenChange={(open) => setPlayerState(prev => ({ ...prev, showSettings: open }))}>
+        <DrawerContent className={`bg-black/90 border-t border-white/20 text-white outline-none transition-all duration-300 ${playerState.isLandscape ? 'landscape-drawer' : ''}`} onClick={(e) => e.stopPropagation()}>
+          <DrawerHeader className={playerState.isLandscape ? 'landscape-header' : ''}>
+            <DrawerTitle className={`text-center text-white ${playerState.isLandscape ? 'text-sm' : ''}`}>Settings</DrawerTitle>
+          </DrawerHeader>
+          <div className={`p-4 overflow-y-auto transition-all duration-300 ${playerState.isLandscape ? 'landscape-settings' : ''}`} style={{ maxHeight: playerState.isLandscape ? '80vh' : '50vh' }}>
+            <Accordion type="single" collapsible className={`w-full ${playerState.isLandscape ? 'landscape-accordion' : ''}`}>
+              {playerState.availableQualities.length > 0 && (
+                <AccordionItem value="quality" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span>Quality</span>
+                      <span className="text-xs text-gray-400">
+                        {playerState.currentQuality === -1
+                          ? 'Auto'
+                          : `${playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height || 'Unknown'}p`
+                        }
+                      </span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-1 pt-2">
+                      <button
+                        onClick={() => changeQuality(-1)}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        Auto
+                      </button>
+                      {playerState.availableQualities.map(quality => (
+                        <button
+                          key={quality.id}
+                          onClick={() => changeQuality(quality.id)}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {quality.height}p ({quality.bitrate} kbps)
+                        </button>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              )}
+
+              {playerState.availableSubtitles.length > 0 && (
+                <AccordionItem value="subtitles" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                  <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span>Subtitles</span>
+                      <span className="text-xs text-gray-400">
+                        {playerState.currentSubtitle ? playerState.availableSubtitles.find(s => s.id === playerState.currentSubtitle)?.label : 'Off'}
+                      </span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-1 pt-2">
+                      <button
+                        onClick={() => changeSubtitle('off')}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          !playerState.currentSubtitle ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        Off
+                      </button>
+                      {playerState.availableSubtitles.map(subtitle => (
+                        <button
+                          key={subtitle.id}
+                          onClick={() => changeSubtitle(subtitle.id)}
+                          className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                            playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                          }`}
+                        >
+                          {subtitle.label}
+                        </button>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              )}
+
+              <AccordionItem value="speed" className={playerState.isLandscape ? 'landscape-accordion-item' : ''}>
+                <AccordionTrigger className={`text-white text-base font-medium hover:no-underline ${playerState.isLandscape ? 'landscape-trigger' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span>Playback Speed</span>
+                    <span className="text-xs text-gray-400">
+                      {playerState.playbackSpeed === 1 ? 'Normal' : `${playerState.playbackSpeed}x`}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-1 pt-2">
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                      <button
+                        key={speed}
+                        onClick={() => changeSpeed(speed)}
+                        className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${
+                          playerState.playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {speed === 1 ? 'Normal' : `${speed}x`}
+                      </button>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+};
+
+export default VideoPlayer;
