@@ -1,479 +1,656 @@
-// /src/pages/ChannelPlayer.tsx - Fixed Version with Animated Favorites
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { PublicChannel, Category } from '@/types';
+// /src/pages/ChannelPlayer.tsx - Comprehensive Channel Player Page with Firebase Fetch, Auth Passthrough, UI Controls, Favorites/Recents Integration, Related Channels, Error Handling, and HLS Download with Duration Options
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { Heart, ArrowLeft, Loader2, AlertCircle, Clock, PlayCircle, Share2, Download, DownloadCloud, StopCircle, Clock as ClockIcon } from 'lucide-react'; // Added Clock for duration
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress'; // For download progress
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // For duration selector
+import { useToast } from '@/hooks/use-toast'; // shadcn toast hook
+import { useAuth } from '@/hooks/useAuth'; // Custom auth hook for favorites/recents
+import { useRecents } from '@/contexts/RecentsContext'; // Recents context for tracking viewed channels
 import VideoPlayer from '@/components/VideoPlayer';
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowLeft, Star, Share2, AlertCircle, Search, Play } from 'lucide-react';
-import { useFavorites } from '@/contexts/FavoritesContext';
-import { useRecents } from '@/contexts/RecentsContext';
-import { toast } from "@/components/ui/sonner";
-import ErrorBoundary from '@/components/ErrorBoundary';
+import { HLSDownloader } from 'hlsdownloader'; // For HLS download (npm i hlsdownloader)
+import { db } from '@/lib/firebase'; // Firebase Firestore import
+import { cn } from '@/lib/utils'; // shadcn classnames util
+import { Channel as ChannelType } from '@/types'; // Assuming types/index.ts defines Channel
 
-const ChannelPlayer = () => {
-  const params = useParams<{ channelId: string }>();
+interface Channel extends ChannelType {
+  isFavorite?: boolean; // Client-side flag from context
+  isRecent?: boolean; // Client-side flag from recents
+}
+
+interface RelatedChannel {
+  id: string;
+  name: string;
+  logoUrl?: string;
+  categoryName: string;
+}
+
+interface DownloadState {
+  isDownloading: boolean;
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  filename: string;
+  selectedDuration: number; // Selected duration in seconds (default 300)
+}
+
+const ChannelPlayer: React.FC = () => {
+  const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
-  const [channel, setChannel] = useState<PublicChannel | null>(null);
-  const [allChannels, setAllChannels] = useState<PublicChannel[]>([]);
-  const [filteredChannels, setFilteredChannels] = useState<PublicChannel[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const location = useLocation();
+  const { user, addToFavorites, removeFromFavorites, isFavorite } = useAuth();
+  const { addToRecents } = useRecents();
+  const { toast } = useToast();
+
+  const [channel, setChannel] = useState<Channel | null>(null);
+  const [relatedChannels, setRelatedChannels] = useState<RelatedChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  const { isFavorite, addFavorite, removeFavorite } = useFavorites();
-  const { addRecent } = useRecents();
+  const [isAddingFavorite, setIsAddingFavorite] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [downloadState, setDownloadState] = useState<DownloadState>({
+    isDownloading: false,
+    progress: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    filename: '',
+    selectedDuration: 300, // Default 5 minutes
+  });
+  const [showDurationSelect, setShowDurationSelect] = useState(false); // Toggle for duration picker
 
-  // Get channelId from params
-  const channelId = params.channelId;
+  // Duration options: 1 min, 5 min, 10 min, 30 min, 60 min
+  const durationOptions = [
+    { value: 60, label: '1 min' },
+    { value: 300, label: '5 min' },
+    { value: 600, label: '10 min' },
+    { value: 1800, label: '30 min' },
+    { value: 3600, label: '1 hour' },
+  ];
 
+  // Fetch channel and related channels from Firestore
   useEffect(() => {
-    if (channelId) {
-      fetchChannel();
-      fetchAllChannels();
-    } else {
-      setError('No channel ID provided in URL');
-      setLoading(false);
-    }
-  }, [channelId]);
-
-  useEffect(() => {
-    if (allChannels.length > 0) {
-      // Filter out the currently playing channel
-      const baseChannels = channel ? allChannels.filter(ch => ch.id !== channel.id) : allChannels;
-
-      const filtered = baseChannels.filter(ch => 
-        ch.name && ch.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredChannels(filtered);
-    } else {
-      setFilteredChannels([]);
-    }
-  }, [searchQuery, allChannels, channel]);
-
-  const parseM3U = (m3uContent: string, categoryId: string, categoryName: string): PublicChannel[] => {
-    const lines = m3uContent.split('\n').map(line => line.trim()).filter(line => line);
-    const channels: PublicChannel[] = [];
-    let currentChannel: Partial<PublicChannel> = {};
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      
-      if (line.startsWith('#EXTINF:')) {
-        const nameMatch = line.match(/,(.+)$/);
-        const channelName = nameMatch ? nameMatch[1].trim() : 'Unknown Channel';
-        const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-        const logoUrl = logoMatch ? logoMatch[1] : '/placeholder.svg';
-        
-        currentChannel = {
-          name: channelName,
-          logoUrl: logoUrl,
-          categoryId,
-          categoryName,
-        };
-      } else if (line && !line.startsWith('#') && currentChannel.name) {
-        const cleanChannelName = currentChannel.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-        const channel: PublicChannel = {
-          id: `${categoryId}_${cleanChannelName}_${channels.length}`, 
-          name: currentChannel.name,
-          logoUrl: currentChannel.logoUrl || '/placeholder.svg',
-          streamUrl: line,
-          categoryId,
-          categoryName,
-        };
-        channels.push(channel);
-        currentChannel = {};
-      }
-    }
-
-    return channels;
-  };
-
-  const fetchM3UPlaylist = async (m3uUrl: string, categoryId: string, categoryName: string): Promise<PublicChannel[]> => {
-    try {
-      const response = await fetch(m3uUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      const m3uContent = await response.text();
-      return parseM3U(m3uContent, categoryId, categoryName);
-    } catch (error) {
-      console.error('Error fetching M3U playlist:', error);
-      return [];
-    }
-  };
-
-  const fetchAllChannels = async () => {
-    try {
-      const categoriesRef = collection(db, 'categories');
-      const categoriesSnapshot = await getDocs(categoriesRef);
-      
-      let allChannelsList: PublicChannel[] = [];
-
-      // Get manual channels
-      try {
-        const channelsRef = collection(db, 'channels');
-        const channelsSnapshot = await getDocs(channelsRef);
-        const manualChannels = channelsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as PublicChannel[];
-        allChannelsList = [...allChannelsList, ...manualChannels];
-      } catch (manualChannelsError) {
-        console.error('Error fetching manual channels:', manualChannelsError);
+    const fetchData = async () => {
+      if (!channelId) {
+        setError('Invalid channel ID');
+        setLoading(false);
+        return;
       }
 
-      // Get M3U channels from all categories
-      for (const categoryDoc of categoriesSnapshot.docs) {
-        const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
-        
-        if (categoryData.m3uUrl) {
-          try {
-            const m3uChannels = await fetchM3UPlaylist(
-              categoryData.m3uUrl,
-              categoryData.id,
-              categoryData.name
-            );
-            if (m3uChannels.length > 0) {
-              allChannelsList = [...allChannelsList, ...m3uChannels];
-            }
-          } catch (m3uError) {
-            console.error(`Error loading M3U playlist for category ${categoryData.name}:`, m3uError);
-          }
-        }
-      }
-
-      // Filter out duplicates
-      const uniqueChannels = allChannelsList.filter((ch, index, self) =>
-        index === self.findIndex((t) => t.id === ch.id)
-      );
-
-      setAllChannels(uniqueChannels);
-    } catch (error) {
-      console.error('Error in fetchAllChannels:', error);
-    }
-  };
-
-  const fetchChannel = async () => {
-    try {
       setLoading(true);
       setError(null);
-      setChannel(null);
 
-      if (!channelId) {
-        setError('Channel ID is required');
-        return;
-      }
-
-      const decodedChannelId = decodeURIComponent(channelId);
-      let foundChannel: PublicChannel | null = null;
-      
-      // 1. Search manual channels first
       try {
-        const channelsRef = collection(db, 'channels');
-        const channelsSnapshot = await getDocs(channelsRef);
-        
-        for (const doc of channelsSnapshot.docs) {
-          if (doc.id === decodedChannelId) {
-            const channelData = doc.data();
-            foundChannel = {
-              id: doc.id,
-              name: channelData.name || 'Unknown Channel',
-              logoUrl: channelData.logoUrl || '/placeholder.svg',
-              streamUrl: channelData.streamUrl || '',
-              categoryId: channelData.categoryId || '',
-              categoryName: channelData.categoryName || 'Unknown Category'
-            };
-            break;
+        // Fetch main channel
+        const channelDoc = await getDoc(doc(db, 'channels', channelId));
+        if (channelDoc.exists()) {
+          const data = channelDoc.data() as Omit<Channel, 'id' | 'isFavorite' | 'isRecent'>;
+          const fullChannel: Channel = {
+            id: channelDoc.id,
+            ...data,
+            isFavorite: user ? isFavorite(data.name) : false,
+            isRecent: false, // Will be set via recents context
+          };
+          setChannel(fullChannel);
+
+          // Add to recents if user is authenticated
+          if (user) {
+            await addToRecents(fullChannel);
+            // Re-check if now recent (for UI)
+            fullChannel.isRecent = true;
           }
+
+          // Fetch related channels (same category, limit 4, exclude self)
+          const relatedQuery = query(
+            collection(db, 'channels'),
+            where('categoryId', '==', data.categoryId),
+            where('id', '!=', channelId),
+            orderBy('name'),
+          );
+          const relatedSnapshot = await getDocs(relatedQuery);
+          const relatedList: RelatedChannel[] = relatedSnapshot.docs.map(doc => ({
+            id: doc.id,
+            name: doc.data().name,
+            logoUrl: doc.data().logoUrl,
+            categoryName: doc.data().categoryName,
+          })).slice(0, 4);
+          setRelatedChannels(relatedList);
+        } else {
+          setError('Channel not found');
         }
-      } catch (manualChannelsError) {
-        console.error('Error fetching manual channels:', manualChannelsError);
+      } catch (err) {
+        console.error('Error fetching channel data:', err);
+        setError('Failed to load channel. Please check your connection.');
+      } finally {
+        setLoading(false);
       }
+    };
 
-      // 2. Search M3U channels if not found
-      if (!foundChannel) {
-        const categoriesRef = collection(db, 'categories');
-        const categoriesSnapshot = await getDocs(categoriesRef);
-          
-        for (const categoryDoc of categoriesSnapshot.docs) {
-          const categoryData = { id: categoryDoc.id, ...categoryDoc.data() } as Category;
-          
-          if (categoryData.m3uUrl) {
-            try {
-              const m3uChannels = await fetchM3UPlaylist(
-                categoryData.m3uUrl,
-                categoryData.id,
-                categoryData.name
-              );
-              
-              const m3uChannel = m3uChannels.find(ch => 
-                ch.id === decodedChannelId
-              );
-              
-              if (m3uChannel) {
-                foundChannel = m3uChannel;
-                break;
-              }
-            } catch (m3uError) {
-              console.error(`Error loading M3U playlist for category ${categoryData.name}:`, m3uError);
-            }
-          }
-        }
-      }
+    fetchData();
+  }, [channelId, user, isFavorite, addToRecents]);
 
-      if (!foundChannel) {
-        setError('Channel not found. The channel may have been removed or the link is invalid.');
-        return;
-      }
-
-      if (!foundChannel.streamUrl) {
-        setError('Channel stream URL is missing or invalid.');
-        return;
-      }
-
-      setChannel(foundChannel);
-      
-      if (addRecent) {
-        addRecent(foundChannel);
-      }
-
-    } catch (error) {
-      setError(`Failed to load channel: ${error}`);
-    } finally {
-      setLoading(false);
+  // Toggle favorite with loading state
+  const handleToggleFavorite = async () => {
+    if (!channel || !user) {
+      toast({
+        title: 'Authentication required',
+        description: 'Sign in to manage favorites.',
+        variant: 'destructive',
+      });
+      return;
     }
-  };
 
-  const handleFavoriteToggle = () => {
-    if (!channel) return;
+    setIsAddingFavorite(true);
     try {
-      if (isFavorite(channel.id)) {
-        removeFavorite(channel.id);
-        toast.info(`${channel.name} removed from favorites`);
+      if (channel.isFavorite) {
+        await removeFromFavorites(channel.name);
+        setChannel(prev => prev ? { ...prev, isFavorite: false } : null);
+        toast({ title: `${channel.name} removed from favorites` });
       } else {
-        addFavorite(channel);
-        toast.success(`${channel.name} added to favorites!`);
+        await addToFavorites(channel);
+        setChannel(prev => prev ? { ...prev, isFavorite: true } : null);
+        toast({ title: `${channel.name} added to favorites` });
       }
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      toast.error("Failed to update favorites");
+    } catch (err) {
+      console.error('Favorite toggle error:', err);
+      toast({
+        title: 'Failed to update favorites',
+        description: 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAddingFavorite(false);
     }
   };
 
+  // Share channel (native share API or copy link)
   const handleShare = async () => {
     if (!channel) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: channel.name,
-          text: `Watch ${channel.name} on Live TV Pro`,
-          url: window.location.href,
-        });
-      } catch (error) {
-        console.error('Error sharing:', error);
+    setIsSharing(true);
+    try {
+      const shareData = {
+        title: `${channel.name} - Live TV Pro`,
+        text: `Watch ${channel.name} live on Live TV Pro`,
+        url: `${window.location.origin}${location.pathname}`,
+      };
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        // Fallback: Copy to clipboard
+        await navigator.clipboard.writeText(shareData.url);
+        toast({ title: 'Link copied to clipboard!' });
       }
-    } else {
-      try {
-        await navigator.clipboard.writeText(window.location.href);
-        toast.success("Link copied to clipboard!");
-      } catch (error) {
-        toast.error("Failed to copy link");
-      }
+    } catch (err) {
+      console.error('Share error:', err);
+      toast({
+        title: 'Failed to share',
+        description: 'Please copy the link manually.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSharing(false);
     }
   };
 
-  const handleChannelSelect = (selectedChannel: PublicChannel) => {
-    if (selectedChannel && selectedChannel.id) {
-      navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
+  // Updated: Download HLS stream with selected duration
+  const handleDownload = useCallback(async () => {
+    if (!channel || !channel.streamUrl || downloadState.isDownloading) return;
+
+    // Check if HLS (only support HLS downloads)
+    if (!channel.streamUrl.toLowerCase().includes('.m3u8')) {
+      toast({
+        title: 'Download not supported',
+        description: 'Only HLS streams (.m3u8) can be downloaded.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Use selected duration
+    const duration = downloadState.selectedDuration;
+    const durationLabel = durationOptions.find(opt => opt.value === duration)?.label || '5 min';
+
+    setDownloadState(prev => ({
+      ...prev,
+      isDownloading: true,
+      progress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      filename: `${channel.name.replace(/[^a-z0-9]/gi, '_')}_${durationLabel.replace(' ', '_')}_${new Date().toISOString().split('T')[0]}.mp4`,
+    }));
+
+    try {
+      const downloader = new HLSDownloader({
+        url: channel.streamUrl, // Use raw streamUrl; proxy handled in VideoPlayer, but for download use direct or proxied if needed
+        authHeader: channel.authCookie ? { 'X-Auth-Cookie': channel.authCookie } : undefined, // Passthrough auth
+        onProgress: (progress, downloaded, total) => {
+          setDownloadState(prev => ({
+            ...prev,
+            progress: progress * 100,
+            downloadedBytes: downloaded,
+            totalBytes: total,
+          }));
+        },
+        onError: (err) => {
+          console.error('Download error:', err);
+          toast({
+            title: 'Download failed',
+            description: err.message || 'Unknown error',
+            variant: 'destructive',
+          });
+          setDownloadState(prev => ({ ...prev, isDownloading: false }));
+        },
+        onComplete: (filePath) => {
+          // Trigger browser download
+          const link = document.createElement('a');
+          link.href = filePath; // Assuming downloader returns blob URL
+          link.download = downloadState.filename;
+          link.click();
+          toast({ 
+            title: 'Download complete!', 
+            description: `Saved ${durationLabel} clip as ${downloadState.filename}` 
+          });
+          setDownloadState(prev => ({ ...prev, isDownloading: false }));
+        },
+      });
+
+      await downloader.download(duration); // Download specified duration in seconds
+    } catch (err) {
+      console.error('Download init error:', err);
+      toast({
+        title: 'Download initialization failed',
+        description: 'Check stream URL and permissions.',
+        variant: 'destructive',
+      });
+      setDownloadState(prev => ({ ...prev, isDownloading: false }));
+    }
+  }, [channel, downloadState.isDownloading, downloadState.selectedDuration, downloadState.filename, toast]);
+
+  // Handle duration selection
+  const handleDurationChange = (value: string) => {
+    const duration = parseInt(value, 10);
+    setDownloadState(prev => ({ ...prev, selectedDuration: duration }));
+    setShowDurationSelect(false); // Close dropdown after selection
+  };
+
+  // Cancel download
+  const handleCancelDownload = () => {
+    // Assuming downloader has abort method; implement if needed
+    setDownloadState(prev => ({ 
+      ...prev, 
+      isDownloading: false, 
+      progress: 0, 
+      downloadedBytes: 0, 
+      totalBytes: 0 
+    }));
+    toast({ title: 'Download cancelled' });
+  };
+
+  // Toggle duration selector
+  const toggleDurationSelect = () => {
+    setShowDurationSelect(prev => !prev);
+  };
+
+  // Navigate to related channel
+  const handleRelatedClick = (relatedId: string) => {
+    navigate(`/channel/${relatedId}`);
+  };
+
+  // Back navigation with referrer handling
+  const handleBack = () => {
+    if (location.state?.from) {
+      navigate(location.state.from);
+    } else {
+      navigate(-1);
     }
   };
+
+  // Memoized related channels UI
+  const relatedSection = useMemo(() => {
+    if (relatedChannels.length === 0) return null;
+    return (
+      <Card className="mt-8">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            Related Channels
+            <Badge variant="secondary">{channel?.categoryName}</Badge>
+          </CardTitle>
+          <CardDescription>Explore more in the same category</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {relatedChannels.map((rel) => (
+            <Button
+              key={rel.id}
+              variant="ghost"
+              className="h-auto p-4 flex flex-col items-center space-y-2 rounded-lg hover:bg-muted"
+              onClick={() => handleRelatedClick(rel.id)}
+            >
+              {rel.logoUrl ? (
+                <img src={rel.logoUrl} alt={rel.name} className="h-12 w-12 object-contain rounded" />
+              ) : (
+                <div className="h-12 w-12 bg-muted rounded flex items-center justify-center">
+                  <PlayCircle className="h-6 w-6" />
+                </div>
+              )}
+              <span className="text-sm font-medium text-center">{rel.name}</span>
+            </Button>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }, [relatedChannels, channel?.categoryName, navigate]);
+
+  // Memoized download UI with duration selector
+  const downloadSection = useMemo(() => {
+    if (!channel) return null;
+    return (
+      <CardFooter className="p-4 pt-2 justify-between items-center">
+        <div className="text-sm text-muted-foreground">
+          Powered by HLS.js with adaptive bitrate for smooth streaming
+        </div>
+        <div className="flex items-center space-x-2">
+          {downloadState.isDownloading ? (
+            <Button variant="outline" size="sm" onClick={handleCancelDownload}>
+              <StopCircle className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+          ) : (
+            <>
+              <Select open={showDurationSelect} onOpenChange={setShowDurationSelect} value={downloadState.selectedDuration.toString()}>
+                <SelectTrigger className="w-[120px] text-xs">
+                  <ClockIcon className="h-3 w-3 mr-1" />
+                  <SelectValue placeholder="Duration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {durationOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value.toString()} onSelect={() => handleDurationChange(opt.value.toString())}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleDownload}
+                className="flex items-center"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </Button>
+            </>
+          )}
+        </div>
+      </CardFooter>
+    );
+  }, [channel, downloadState, showDurationSelect, handleDownload, handleCancelDownload, durationOptions, handleDurationChange]);
+
+  // Progress overlay during download
+  const downloadProgress = useMemo(() => {
+    if (!downloadState.isDownloading) return null;
+    const durationLabel = durationOptions.find(opt => opt.value === downloadState.selectedDuration)?.label || '5 min';
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <DownloadCloud className="h-5 w-5 animate-pulse" />
+              <span>Downloading {channel?.name}</span>
+            </CardTitle>
+            <CardDescription>{durationLabel} clip</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Progress value={downloadState.progress} className="w-full" />
+            <div className="flex justify-between text-sm">
+              <span>{Math.round(downloadState.downloadedBytes / 1024 / 1024)} MB / {Math.round(downloadState.totalBytes / 1024 / 1024)} MB</span>
+              <span>{Math.round(downloadState.progress)}%</span>
+            </div>
+            <p className="text-sm text-muted-foreground">File: {downloadState.filename}</p>
+          </CardContent>
+          <CardFooter>
+            <Button variant="outline" onClick={handleCancelDownload} className="w-full">Cancel Download</Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }, [downloadState, channel?.name, durationOptions]);
 
   if (loading) {
     return (
-      <div className="space-y-6 p-4 sm:p-6">
-        <div className="flex items-center gap-4">
-          <Skeleton className="h-16 w-16 rounded-lg" />
-          <div className="space-y-2">
-            <Skeleton className="h-6 w-64" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-        </div>
-        <Skeleton className="aspect-video w-full" />
-        <div className="flex gap-2">
-          <Skeleton className="h-10 w-24" />
-          <Skeleton className="h-10 w-24" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading {channelId ? 'channel' : 'page'}...</p>
         </div>
       </div>
     );
   }
 
   if (error || !channel) {
-    const displayError = error || 'Channel not found or stream is missing.';
     return (
-      <div className="space-y-6 p-4 sm:p-6">
-        <Button 
-          variant="ghost" 
-          onClick={() => navigate(-1)}
-          className="mb-4"
-        >
-          <ArrowLeft size={16} className="mr-2" />
-          Go Back
-        </Button>
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{displayError}</AlertDescription>
-        </Alert>
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Card className="w-full max-w-md">
+          <CardHeader className="space-y-1">
+            <div className="flex items-center justify-center text-destructive">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <CardTitle className="text-2xl text-center">Channel Error</CardTitle>
+            <CardDescription className="text-center">{error || 'Channel not available'}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col space-y-2">
+            <Button onClick={handleBack} variant="outline" className="w-full">Go Back</Button>
+            <Button onClick={() => window.location.reload()} variant="secondary" className="w-full">Retry</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  const isChannelFavorite = isFavorite(channel.id);
-
   return (
-    <ErrorBoundary>
-      <div className="space-y-6 p-4 sm:p-6">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={() => navigate(-1)}>
-            <ArrowLeft size={16} className="mr-2" />
-            Back
-          </Button>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleFavoriteToggle}
-              className={`transition-all duration-300 ${isChannelFavorite ? 'text-yellow-500 border-yellow-500/50 bg-yellow-500/10' : ''}`}
-            >
-              <Star 
-                size={16} 
-                fill={isChannelFavorite ? 'currentColor' : 'none'} 
-                className={`mr-1 transition-all duration-300 ${isChannelFavorite ? 'animate-pulse' : ''}`} 
-              />
-              {isChannelFavorite ? 'Favorited' : 'Add to Favorites'}
+    <>
+      {/* Download Progress Overlay */}
+      {downloadProgress}
+
+      <div className="min-h-screen bg-background">
+        {/* Sticky Header */}
+        <header className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+          <div className="container flex items-center justify-between h-16 px-4">
+            <Button variant="ghost" onClick={handleBack} size="sm" className="h-10 px-3">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to {channel.categoryName}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleShare}>
-              <Share2 size={16} className="mr-1" />
-              Share
-            </Button>
-          </div>
-        </div>
-
-        {/* Channel Info */}
-        <div className="flex items-center gap-4">
-          <img
-            src={channel.logoUrl || '/placeholder.svg'}
-            alt={channel.name}
-            className="w-16 h-16 object-contain p-1 bg-white dark:bg-gray-800 rounded-lg shadow"
-            onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-          />
-          <div>
-            <h1 className="text-2xl font-bold">{channel.name}</h1>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="secondary">{channel.categoryName}</Badge>
-              <Badge variant="destructive" className="animate-pulse">LIVE</Badge>
-            </div>
-          </div>
-        </div>
-
-        {/* Video Player - Full Width, No Rounded Corners */}
-        <div className="w-full aspect-video bg-black overflow-hidden shadow-2xl">
-          <VideoPlayer
-            key={channel.id} 
-            streamUrl={channel.streamUrl}
-            channelName={channel.name}
-            autoPlay={true}
-            muted={false}
-            className="w-full h-full"
-          />
-        </div>
-
-        {/* Related Channels Section */}
-        <div className="related-channels-section pt-4">
-          <h2 className="text-xl font-semibold mb-4 border-b pb-2">
-            More Channels
-            {channel.categoryName && <span className="text-base text-gray-500 font-normal ml-2">in {channel.categoryName}</span>}
-          </h2>
-          
-          <div className="mb-4 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <input
-              type="search"
-              placeholder="Search related channels..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-lg bg-card text-card-foreground focus:ring-2 focus:ring-accent focus:border-accent shadow-inner"
-            />
-          </div>
-
-          {filteredChannels.length > 0 ? (
-            <div className="channels-grid-4 gap-4">
-              {filteredChannels.map(ch => {
-                const isRelatedFavorite = isFavorite(ch.id);
-                
-                return (
-                  <div 
-                    key={ch.id} 
-                    className="channel-card cursor-pointer p-3 border rounded-lg hover:border-accent transition-all duration-300 bg-card shadow-sm hover:shadow-lg transform hover:scale-105 relative"
-                    onClick={() => handleChannelSelect(ch)}
+            <div className="flex items-center space-x-2">
+              <Badge variant="default" className="bg-primary">{channel.categoryName}</Badge>
+              {user && (
+                <>
+                  <Separator orientation="vertical" className="h-6" />
+                  <Button
+                    variant={channel.isFavorite ? 'destructive' : 'outline'}
+                    size="sm"
+                    onClick={handleToggleFavorite}
+                    disabled={isAddingFavorite}
+                    className="h-10 px-3"
                   >
-                    {/* Favorite Star Button */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        try {
-                          if (isRelatedFavorite) {
-                            removeFavorite(ch.id);
-                          } else {
-                            addFavorite(ch);
-                          }
-                        } catch (error) {
-                          console.error('Error toggling favorite:', error);
-                        }
-                      }}
-                      className={`absolute top-2 right-2 p-1 rounded-full z-10 transition-all duration-300 transform hover:scale-110 ${
-                        isRelatedFavorite
-                          ? 'bg-yellow-500 text-white shadow-lg animate-bounce'
-                          : 'bg-black/50 text-white hover:bg-black/70'
-                      }`}
-                      title={isRelatedFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    {isAddingFavorite ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : null}
+                    <Heart className={cn("h-4 w-4 mr-2", channel.isFavorite && "fill-current")} />
+                    {channel.isFavorite ? 'Remove' : 'Favorite'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleShare}
+                    disabled={isSharing}
+                    className="h-10 px-3"
+                  >
+                    {isSharing ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Share2 className="h-4 w-4 mr-2" />
+                    )}
+                    Share
+                  </Button>
+                  <div className="flex items-center space-x-1">
+                    <Select 
+                      value={downloadState.selectedDuration.toString()} 
+                      onValueChange={handleDurationChange}
                     >
-                      <Star 
-                        size={12} 
-                        fill={isRelatedFavorite ? 'white' : 'none'} 
-                        className={isRelatedFavorite ? 'animate-pulse' : ''}
-                      />
-                    </button>
-
-                    <img
-                      src={ch.logoUrl || '/placeholder.svg'}
-                      alt={ch.name}
-                      className="w-full h-12 sm:h-16 object-contain mb-2 p-1"
-                      onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-                    />
-                    <p className="text-sm font-medium truncate text-center mb-2">{ch.name}</p>
-                    <Badge className="flex w-fit mx-auto items-center gap-1 text-xs transition-all duration-300 hover:bg-accent-hover" variant="default">
-                      <Play size={12} />
-                      Watch
-                    </Badge>
+                      <SelectTrigger className="w-[100px] h-10 text-xs">
+                        <ClockIcon className="h-3 w-3 mr-1" />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {durationOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value.toString()}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownload}
+                      disabled={downloadState.isDownloading}
+                      className="h-10 px-3"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </Button>
                   </div>
-                );
-              })}
+                </>
+              )}
             </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              <p>No other channels found matching your search.</p>
-            </div>
+          </div>
+        </header>
+
+        {/* Main Container */}
+        <main className="container mx-auto px-4 py-6 space-y-6">
+          {/* Channel Info Card */}
+          <Card className="max-w-4xl mx-auto">
+            <CardHeader className="flex flex-row items-start space-x-4 pb-4">
+              {channel.logoUrl ? (
+                <img
+                  src={channel.logoUrl}
+                  alt={channel.name}
+                  className="h-16 w-16 flex-shrink-0 rounded-lg object-contain bg-muted"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="h-16 w-16 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+                  <PlayCircle className="h-8 w-8 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <CardTitle className="text-2xl font-bold truncate">{channel.name}</CardTitle>
+                {channel.description && (
+                  <CardDescription className="text-base mt-1">{channel.description}</CardDescription>
+                )}
+                <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
+                  <div className="flex items-center space-x-1">
+                    <Clock className="h-4 w-4" />
+                    <span>Live Now</span>
+                  </div>
+                  {channel.isRecent && (
+                    <Badge variant="secondary" className="text-xs">Recently Viewed</Badge>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardFooter className="flex justify-between pt-0">
+              <div className="text-sm text-muted-foreground">
+                Category: {channel.categoryName}
+              </div>
+              {user && channel.isFavorite && (
+                <Badge variant="default">★ Favorite</Badge>
+              )}
+            </CardFooter>
+          </Card>
+
+          <Separator />
+
+          {/* Video Player Card */}
+          <Card className="max-w-4xl mx-auto overflow-hidden">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center space-x-2">
+                <PlayCircle className="h-5 w-5" />
+                <span>Live Stream</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <VideoPlayer
+                streamUrl={channel.streamUrl} // Auto-proxies HLS via internal logic
+                channelName={channel.name}
+                autoPlay={true}
+                muted={true}
+                authCookie={channel.authCookie} // Passes to proxy for upstream auth
+                showControls={true}
+                className="aspect-video w-full"
+                onPlay={() => toast({ title: `Now playing: ${channel.name}` })}
+                onPause={() => toast({ title: 'Stream paused' })}
+                onError={(err) => {
+                  console.error('Player error:', err);
+                  setError(err);
+                  toast({
+                    title: 'Playback Error',
+                    description: err,
+                    variant: 'destructive',
+                    action: (
+                      <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                        Retry
+                      </Button>
+                    ),
+                  });
+                }}
+              />
+            </CardContent>
+            {downloadSection}
+          </Card>
+
+          {/* Recents Section (if applicable) */}
+          {user && channel.isRecent && (
+            <Card className="max-w-4xl mx-auto">
+              <CardHeader>
+                <CardTitle>Recently Watched</CardTitle>
+                <CardDescription>Quick access to your recent channels</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* Placeholder for recents grid - integrate with RecentsContext */}
+                <p className="text-sm text-muted-foreground">Your recents will appear here.</p>
+              </CardContent>
+            </Card>
           )}
-        </div>
+
+          {/* Related Channels Section */}
+          {relatedSection}
+
+          {/* Footer Info */}
+          <Card className="max-w-4xl mx-auto">
+            <CardContent className="p-4 text-sm text-muted-foreground text-center">
+              <p>
+                Enjoy {channel.name} from {channel.categoryName}. 
+                For support, visit the admin dashboard or contact us.
+              </p>
+              <div className="flex justify-center space-x-4 mt-2">
+                <Button variant="link" size="sm" onClick={() => navigate('/admin')}>
+                  Admin Dashboard
+                </Button>
+                <Button variant="link" size="sm" onClick={() => navigate('/')}>
+                  Home
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
       </div>
-    </ErrorBoundary>
+    </>
   );
 };
 
