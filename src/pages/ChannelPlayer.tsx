@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import ShakaPlayer from "shaka-player";
-import videojs from "video.js";
-import "video.js/dist/video-js.css";
 
 interface ChannelPlayerProps {
   streamUrl: string;
@@ -16,27 +14,32 @@ const ChannelPlayer: React.FC<ChannelPlayerProps> = ({ streamUrl, type }) => {
   useEffect(() => {
     if (!videoRef.current) return;
 
+    let currentPlayer: any = null;
+
     if (type === "hls") {
       if (Hls.isSupported()) {
         const hls = new Hls();
         hls.loadSource(streamUrl);
         hls.attachMedia(videoRef.current);
-        setPlayer(hls);
+        currentPlayer = hls;
       } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari native support
         videoRef.current.src = streamUrl;
       }
     } else if (type === "dash") {
       const shakaPlayer = new ShakaPlayer.Player(videoRef.current);
-      shakaPlayer.load(streamUrl).catch((err: any) => console.error(err));
-      setPlayer(shakaPlayer);
+      shakaPlayer.load(streamUrl).catch((err: any) => console.error("Shaka load error:", err));
+      currentPlayer = shakaPlayer;
     }
 
+    setPlayer(currentPlayer);
+
     return () => {
-      if (player) {
+      if (currentPlayer) {
         if (type === "hls") {
-          player.destroy();
+          currentPlayer.destroy();
         } else if (type === "dash") {
-          player.destroy();
+          currentPlayer.destroy();
         }
       }
     };
@@ -46,7 +49,7 @@ const ChannelPlayer: React.FC<ChannelPlayerProps> = ({ streamUrl, type }) => {
     <div className="w-full h-full flex flex-col items-center">
       <video
         ref={videoRef}
-        className="video-js vjs-big-play-centered w-full h-[500px]"
+        className="w-full h-[500px] bg-black rounded-lg"
         controls
         autoPlay
       />
