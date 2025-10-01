@@ -1,85 +1,99 @@
-// /api/m3u8-proxy.js - New file: Vercel Serverless Function for M3U8 Proxy
+// /api/m3u8-proxy.js - HLS-Only Proxy (Vercel Serverless, with m3u8-parser)
 const { URL } = require('url');
+const Parser = require('m3u8-parser');
 
 const PUBLIC_URL = process.env.PUBLIC_URL || 'http://localhost:3000';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim());
 
-function withCORS(res) {
+function addCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Auth-Cookie');
   return res;
 }
 
+function isValidHost(host) {
+  return !/^(10\.|127\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(host) && !host.endsWith('.local');
+}
+
 async function proxyRequest(targetUrl, req) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
   try {
     const response = await fetch(targetUrl, {
       method: req.method,
+      signal: controller.signal,
       headers: {
         'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+        'Cookie': req.headers['x-auth-cookie'] || req.headers['cookie'] || '', // Passthrough authCookie
       },
     });
-
-    if (!response.ok) {
-      return new Response(`Proxy fetch failed: ${response.status}`, { status: response.status });
-    }
-
-    const contentType = response.headers.get('Content-Type') || '';
-    const res = new Response(response.body, {
-      status: response.status,
-      headers: response.headers,
-    });
-
-    return withCORS(res);
-  } catch (error) {
-    console.error('Proxy error:', error);
-    return new Response('Fetch error', { status: 500 });
+    clearTimeout(timeoutId);
+    if (!response.ok) throw new Error(`Upstream: ${response.status}`);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.error(err);
+    throw err;
   }
 }
 
-function rewriteM3U8Urls(body, baseUrl, proxyPath) {
-  return body
-    .split('\n')
-    .map(line => {
-      if (line.startsWith('#EXTINF') || line.startsWith('#EXT-X') || line.startsWith('#')) {
-        return line;
+function rewriteManifest(body, baseUrl) {
+  const parser = new Parser();
+  parser.push(body);
+  parser.end();
+  if (!parser.manifest.segments) return body; // Not valid M3U8
+
+  parser.manifest.segments.forEach(seg => {
+    if (seg.uri && !seg.uri.startsWith('http')) {
+      const absUri = new URL(seg.uri, baseUrl).href;
+      seg.uri = `${PUBLIC_URL}/api/m3u8-proxy?url=${encodeURIComponent(absUri)}`;
+    }
+  });
+
+  // Handle playlist variants if master manifest
+  if (parser.manifest.playlists) {
+    parser.manifest.playlists.forEach(playlist => {
+      if (playlist.uri && !playlist.uri.startsWith('http')) {
+        const absUri = new URL(playlist.uri, baseUrl).href;
+        playlist.uri = `${PUBLIC_URL}/api/m3u8-proxy?url=${encodeURIComponent(absUri)}`;
       }
-      if (line.trim() && !line.startsWith('http')) {
-        const absUrl = new URL(line.trim(), baseUrl).href;
-        return `${proxyPath}?url=${encodeURIComponent(absUrl)}`;
-      }
-      return line;
-    })
-    .join('\n');
+    });
+  }
+
+  return parser.manifest.toString();
 }
 
 module.exports = async (req, res) => {
-  const origin = req.headers.origin || '';
-  if (!ALLOWED_ORIGINS.includes(new URL(origin).hostname)) {
-    return res.status(403).send('Origin not allowed');
-  }
+  addCORS(res);
 
   const urlParam = req.query.url;
-  if (!urlParam) {
-    return res.status(400).send('Missing url param');
-  }
+  if (!urlParam) return res.status(400).end('Missing url param');
 
   const targetUrl = decodeURIComponent(urlParam);
   const parsed = new URL(targetUrl);
-  const isM3U8 = parsed.pathname.endsWith('.m3u8');
-  const contentType = isM3U8 ? 'application/vnd.apple.mpegurl' : 'video/mp2t';
+  if (!isValidHost(parsed.host)) return res.status(403).end('Invalid host');
 
-  if (isM3U8) {
-    // Proxy M3U8 manifest
-    const proxyRes = await proxyRequest(targetUrl, req);
-    const text = await proxyRes.text();
-    const rewritten = rewriteM3U8Urls(text, targetUrl, `${PUBLIC_URL}/api/m3u8-proxy`);
-    res.setHeader('Content-Type', contentType);
-    return res.status(proxyRes.status).send(rewritten);
-  } else {
-    // Proxy TS segment
-    const proxyRes = await proxyRequest(targetUrl, req);
-    res.setHeader('Content-Type', contentType);
-    proxyRes.body.pipe(res);
+  const isHLS = parsed.pathname.endsWith('.m3u8') || parsed.pathname.endsWith('.ts');
+  if (!isHLS) return res.status(400).end('Only HLS supported');
+
+  try {
+    const upstream = await proxyRequest(targetUrl, req);
+    res.status(upstream.status);
+
+    if (parsed.pathname.endsWith('.m3u8')) {
+      const body = await upstream.text();
+      const rewritten = rewriteManifest(body, targetUrl);
+      res.setHeader('Cache-Control', 'public, max-age=5');
+      res.type('application/vnd.apple.mpegurl').send(rewritten);
+    } else {
+      // TS binary stream
+      upstream.headers.forEach((v, k) => res.setHeader(k, v));
+      res.type('video/mp2t');
+      upstream.body.pipe(res);
+    }
+  } catch (err) {
+    res.status(500).end('Proxy failed');
   }
 };
