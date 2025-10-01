@@ -1,85 +1,85 @@
 {
   "name": "vite_react_shadcn_ts",
-  [span_0](start_span)"private": true,[span_0](end_span)
-  [span_1](start_span)"version": "0.0.0",[span_1](end_span)
-  [span_2](start_span)"type": "module",[span_2](end_span)
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    [span_3](start_span)"dev": "vite",[span_3](end_span)
-    [span_4](start_span)"build": "tsc && vite build",[span_4](end_span)
-    [span_5](start_span)"lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",[span_5](end_span)
-    [span_6](start_span)"preview": "vite preview"[span_6](end_span)
-  [span_7](start_span)},[span_7](end_span)
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    [span_8](start_span)"@hookform/resolvers": "^3.10.0",[span_8](end_span)
-    [span_9](start_span)"@radix-ui/react-accordion": "^1.2.11",[span_9](end_span)
-    [span_10](start_span)"@radix-ui/react-alert-dialog": "^1.1.14",[span_10](end_span)
-    [span_11](start_span)"@radix-ui/react-aspect-ratio": "^1.1.7",[span_11](end_span)
-    [span_12](start_span)"@radix-ui/react-avatar": "^1.1.10",[span_12](end_span)
-    [span_13](start_span)"@radix-ui/react-checkbox": "^1.3.2",[span_13](end_span)
-    [span_14](start_span)"@radix-ui/react-collapsible": "^1.1.11",[span_14](end_span)
-    [span_15](start_span)"@radix-ui/react-context-menu": "^2.2.15",[span_15](end_span)
-    [span_16](start_span)"@radix-ui/react-dialog": "^1.1.14",[span_16](end_span)
-    [span_17](start_span)"@radix-ui/react-dropdown-menu": "^2.1.15",[span_17](end_span)
-    [span_18](start_span)"@radix-ui/react-hover-card": "^1.1.14",[span_18](end_span)
-    [span_19](start_span)"@radix-ui/react-label": "^2.1.7",[span_19](end_span)
-    [span_20](start_span)"@radix-ui/react-menubar": "^1.1.15",[span_20](end_span)
-    [span_21](start_span)"@radix-ui/react-navigation-menu": "^1.2.13",[span_21](end_span)
-    [span_22](start_span)"@radix-ui/react-popover": "^1.1.14",[span_22](end_span)
-    [span_23](start_span)"@radix-ui/react-progress": "^1.1.7",[span_23](end_span)
-    [span_24](start_span)"@radix-ui/react-radio-group": "^1.3.7",[span_24](end_span)
-    [span_25](start_span)"@radix-ui/react-scroll-area": "^1.2.9",[span_25](end_span)
-    [span_26](start_span)"@radix-ui/react-select": "^2.2.5",[span_26](end_span)
-    [span_27](start_span)"@radix-ui/react-separator": "^1.1.7",[span_27](end_span)
-    [span_28](start_span)"@radix-ui/react-slider": "^1.3.5",[span_28](end_span)
-    [span_29](start_span)"@radix-ui/react-slot": "^1.2.3",[span_29](end_span)
-    [span_30](start_span)"@radix-ui/react-switch": "^1.2.5",[span_30](end_span)
-    [span_31](start_span)"@radix-ui/react-tabs": "^1.1.12",[span_31](end_span)
-    [span_32](start_span)"@radix-ui/react-toast": "^1.2.14",[span_32](end_span)
-    [span_33](start_span)"@radix-ui/react-toggle": "^1.1.9",[span_33](end_span)
-    [span_34](start_span)"@radix-ui/react-toggle-group": "^1.1.10",[span_34](end_span)
-    [span_35](start_span)"@radix-ui/react-tooltip": "^1.2.7",[span_35](end_span)
-    [span_36](start_span)"@supabase/supabase-js": "^2.58.0",[span_36](end_span)
-    [span_37](start_span)"@tanstack/react-query": "^5.83.0",[span_37](end_span)
-    [span_38](start_span)"class-variance-authority": "^0.7.1",[span_38](end_span)
-    [span_39](start_span)"clsx": "^2.1.1",[span_39](end_span)
-    [span_40](start_span)"cmdk": "^1.1.1",[span_40](end_span)
-    [span_41](start_span)"date-fns": "^3.6.0",[span_41](end_span)
-    [span_42](start_span)"embla-carousel-react": "^8.6.0",[span_42](end_span)
-    [span_43](start_span)"firebase": "^12.3.0",[span_43](end_span)
-    [span_44](start_span)"hls.js": "^1.6.13",[span_44](end_span)
-    [span_45](start_span)"input-otp": "^1.4.2",[span_45](end_span)
-    [span_46](start_span)"lucide-react": "^0.462.0",[span_46](end_span)
-    [span_47](start_span)"next-themes": "^0.4.6",[span_47](end_span)
-    [span_48](start_span)"react": "^18.3.1",[span_48](end_span)
-    [span_49](start_span)"react-day-picker": "^8.10.1",[span_49](end_span)
-    [span_50](start_span)"react-dom": "^18.3.1",[span_50](end_span)
-    [span_51](start_span)"react-hook-form": "^7.61.1",[span_51](end_span)
-    [span_52](start_span)"react-resizable-panels": "^2.1.9",[span_52](end_span)
-    [span_53](start_span)"react-router-dom": "^6.30.1",[span_53](end_span)
-    [span_54](start_span)"recharts": "^2.15.4",[span_54](end_span)
-    [span_55](start_span)"shaka-player": "^4.3.10",[span_55](end_span)
-    [span_56](start_span)"sonner": "^1.7.4",[span_56](end_span)
-    [span_57](start_span)"tailwind-merge": "^2.6.0",[span_57](end_span)
-    [span_58](start_span)"tailwindcss-animate": "^1.0.7"[span_58](end_span)
+    "@hookform/resolvers": "^3.10.0",
+    "@radix-ui/react-accordion": "^1.2.11",
+    "@radix-ui/react-alert-dialog": "^1.1.14",
+    "@radix-ui/react-aspect-ratio": "^1.1.7",
+    "@radix-ui/react-avatar": "^1.1.10",
+    "@radix-ui/react-checkbox": "^1.3.2",
+    "@radix-ui/react-collapsible": "^1.1.11",
+    "@radix-ui/react-context-menu": "^2.2.15",
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-dropdown-menu": "^2.1.15",
+    "@radix-ui/react-hover-card": "^1.1.14",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-menubar": "^1.1.15",
+    "@radix-ui/react-navigation-menu": "^1.2.13",
+    "@radix-ui/react-popover": "^1.1.14",
+    "@radix-ui/react-progress": "^1.1.7",
+    "@radix-ui/react-radio-group": "^1.3.7",
+    "@radix-ui/react-scroll-area": "^1.2.9",
+    "@radix-ui/react-select": "^2.2.5",
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slider": "^1.3.5",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.2.5",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "@radix-ui/react-toast": "^1.2.14",
+    "@radix-ui/react-toggle": "^1.1.9",
+    "@radix-ui/react-toggle-group": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.7",
+    "@supabase/supabase-js": "^2.58.0",
+    "@tanstack/react-query": "^5.83.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "date-fns": "^3.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "firebase": "^12.3.0",
+    "hls.js": "^1.6.13",
+    "input-otp": "^1.4.2",
+    "lucide-react": "^0.462.0",
+    "next-themes": "^0.4.6",
+    "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.61.1",
+    "react-resizable-panels": "^2.1.9",
+    "react-router-dom": "^6.30.1",
+    "recharts": "^2.15.4",
+    "shaka-player": "^4.3.10",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    [span_59](start_span)"@types/bun": "^1.1.3",[span_59](end_span)
-    [span_60](start_span)"@types/node": "^20.14.10",[span_60](end_span)
-    [span_61](start_span)"@types/react": "^18.3.3",[span_61](end_span)
-    [span_62](start_span)"@types/react-dom": "^18.3.0",[span_62](end_span)
-    [span_63](start_span)"@typescript-eslint/eslint-plugin": "8.45.0",[span_63](end_span)
-    [span_64](start_span)"@typescript-eslint/parser": "8.44.0",[span_64](end_span)
-    [span_65](start_span)"@vitejs/plugin-react": "^4.3.1",[span_65](end_span)
-    [span_66](start_span)"@vitejs/plugin-react-swc": "4.1.0",[span_66](end_span)
-    [span_67](start_span)"autoprefixer": "^10.4.19",[span_67](end_span)
-    [span_68](start_span)"eslint": "^9.7.0",[span_68](end_span)
-    [span_69](start_span)"eslint-plugin-react-hooks": "^5.0.0",[span_69](end_span)
-    [span_70](start_span)"eslint-plugin-react-refresh": "^0.4.7",[span_70](end_span)
-    [span_71](start_span)"lovable-tagger": "^1.1.10",[span_71](end_span)
-    [span_72](start_span)"postcss": "^8.4.39",[span_72](end_span)
-    [span_73](start_span)"tailwindcss": "^3.4.4",[span_73](end_span)
-    [span_74](start_span)"typescript": "^5.2.2",[span_74](end_span)
-    [span_75](start_span)"typescript-eslint": "8.45.0",[span_75](end_span)
-    [span_76](start_span)"vite": "^5.4.1"[span_76](end_span)
+    "@types/bun": "^1.1.3",
+    "@types/node": "^20.14.10",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "8.45.0",
+    "@typescript-eslint/parser": "8.44.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react-swc": "4.1.0",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^9.7.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "lovable-tagger": "^1.1.10",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.2.2",
+    "typescript-eslint": "8.45.0",
+    "vite": "^5.4.1"
   }
 }
