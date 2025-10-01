@@ -2,24 +2,32 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
-import { Heart, ArrowLeft, Loader2, AlertCircle, Clock, PlayCircle, Share2, Download, DownloadCloud, StopCircle, Clock as ClockIcon } from 'lucide-react'; // Added Clock for duration
+import { Heart, ArrowLeft, Loader2, AlertCircle, Clock, PlayCircle, Share2, Download, DownloadCloud, StopCircle, Clock as ClockIcon } from 'lucide-react';
+// Added Clock for duration
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress'; // For download progress
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // For duration selector
-import { useToast } from '@/hooks/use-toast'; // shadcn toast hook
-import { useAuth } from '@/hooks/useAuth'; // Custom auth hook for favorites/recents
-import { useRecents } from '@/contexts/RecentsContext'; // Recents context for tracking viewed channels
+import { Progress } from '@/components/ui/progress';
+// For download progress
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// For duration selector
+import { toast } from "@/components/ui/sonner";
+import { useAuth } from '@/hooks/useAuth'; // Custom auth hook for user data
+import { useFavorites } from '@/contexts/FavoritesContext'; // Correct hook for favorites
+import { useRecents } from '@/contexts/RecentsContext';
+// Recents context for tracking viewed channels
 import VideoPlayer from '@/components/VideoPlayer';
 import { HLSDownloader } from 'hlsdownloader'; // For HLS download (npm i hlsdownloader)
 import { db } from '@/lib/firebase'; // Firebase Firestore import
-import { cn } from '@/lib/utils'; // shadcn classnames util
-import { Channel as ChannelType } from '@/types'; // Assuming types/index.ts defines Channel
+import { cn } from '@/lib/utils';
+// shadcn classnames util
+import { Channel as ChannelType } from '@/types';
+// Assuming types/index.ts defines Channel
 
 interface Channel extends ChannelType {
-  isFavorite?: boolean; // Client-side flag from context
+  isFavorite?: boolean;
+// Client-side flag from context
   isRecent?: boolean; // Client-side flag from recents
 }
 
@@ -36,17 +44,18 @@ interface DownloadState {
   downloadedBytes: number;
   totalBytes: number;
   filename: string;
-  selectedDuration: number; // Selected duration in seconds (default 300)
+  selectedDuration: number;
+// Selected duration in seconds (default 300)
 }
 
 const ChannelPlayer: React.FC = () => {
   const { channelId } = useParams<{ channelId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, addToFavorites, removeFromFavorites, isFavorite } = useAuth();
-  const { addToRecents } = useRecents();
-  const { toast } = useToast();
-
+  const { user } = useAuth(); // Correctly get user data
+  const { addFavorite, removeFavorite, isFavorite } = useFavorites(); // Correctly get favorite functions
+  const { addRecent } = useRecents(); // Correctly get recents function
+  
   const [channel, setChannel] = useState<Channel | null>(null);
   const [relatedChannels, setRelatedChannels] = useState<RelatedChannel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,17 +101,16 @@ const ChannelPlayer: React.FC = () => {
           const fullChannel: Channel = {
             id: channelDoc.id,
             ...data,
-            isFavorite: user ? isFavorite(data.name) : false,
+            isFavorite: isFavorite(channelDoc.id), // Correctly check favorite status by ID
             isRecent: false, // Will be set via recents context
           };
           setChannel(fullChannel);
 
-          // Add to recents if user is authenticated
-          if (user) {
-            await addToRecents(fullChannel);
-            // Re-check if now recent (for UI)
-            fullChannel.isRecent = true;
-          }
+          // Add to recents
+          addRecent(fullChannel);
+          // Re-check if now recent (for UI)
+          fullChannel.isRecent = true;
+
 
           // Fetch related channels (same category, limit 4, exclude self)
           const relatedQuery = query(
@@ -131,15 +139,13 @@ const ChannelPlayer: React.FC = () => {
     };
 
     fetchData();
-  }, [channelId, user, isFavorite, addToRecents]);
+  }, [channelId, isFavorite, addRecent]);
 
   // Toggle favorite with loading state
   const handleToggleFavorite = async () => {
-    if (!channel || !user) {
-      toast({
-        title: 'Authentication required',
-        description: 'Sign in to manage favorites.',
-        variant: 'destructive',
+    if (!channel) {
+      toast.error('Cannot update favorites.', {
+        description: 'Channel data is not available.',
       });
       return;
     }
@@ -147,20 +153,18 @@ const ChannelPlayer: React.FC = () => {
     setIsAddingFavorite(true);
     try {
       if (channel.isFavorite) {
-        await removeFromFavorites(channel.name);
+        removeFavorite(channel.id); // Correct function name and argument
         setChannel(prev => prev ? { ...prev, isFavorite: false } : null);
-        toast({ title: `${channel.name} removed from favorites` });
+        toast.success(`${channel.name} removed from favorites`);
       } else {
-        await addToFavorites(channel);
+        addFavorite(channel); // Correct function name
         setChannel(prev => prev ? { ...prev, isFavorite: true } : null);
-        toast({ title: `${channel.name} added to favorites` });
+        toast.success(`${channel.name} added to favorites`);
       }
     } catch (err) {
       console.error('Favorite toggle error:', err);
-      toast({
-        title: 'Failed to update favorites',
+      toast.error('Failed to update favorites', {
         description: 'Please try again.',
-        variant: 'destructive',
       });
     } finally {
       setIsAddingFavorite(false);
@@ -182,14 +186,12 @@ const ChannelPlayer: React.FC = () => {
       } else {
         // Fallback: Copy to clipboard
         await navigator.clipboard.writeText(shareData.url);
-        toast({ title: 'Link copied to clipboard!' });
+        toast.success('Link copied to clipboard!');
       }
     } catch (err) {
       console.error('Share error:', err);
-      toast({
-        title: 'Failed to share',
+      toast.error('Failed to share', {
         description: 'Please copy the link manually.',
-        variant: 'destructive',
       });
     } finally {
       setIsSharing(false);
@@ -202,10 +204,8 @@ const ChannelPlayer: React.FC = () => {
 
     // Check if HLS (only support HLS downloads)
     if (!channel.streamUrl.toLowerCase().includes('.m3u8')) {
-      toast({
-        title: 'Download not supported',
+      toast.error('Download not supported', {
         description: 'Only HLS streams (.m3u8) can be downloaded.',
-        variant: 'destructive',
       });
       return;
     }
@@ -237,10 +237,8 @@ const ChannelPlayer: React.FC = () => {
         },
         onError: (err) => {
           console.error('Download error:', err);
-          toast({
-            title: 'Download failed',
+          toast.error('Download failed', {
             description: err.message || 'Unknown error',
-            variant: 'destructive',
           });
           setDownloadState(prev => ({ ...prev, isDownloading: false }));
         },
@@ -250,8 +248,7 @@ const ChannelPlayer: React.FC = () => {
           link.href = filePath; // Assuming downloader returns blob URL
           link.download = downloadState.filename;
           link.click();
-          toast({ 
-            title: 'Download complete!', 
+          toast.success('Download complete!', { 
             description: `Saved ${durationLabel} clip as ${downloadState.filename}` 
           });
           setDownloadState(prev => ({ ...prev, isDownloading: false }));
@@ -261,14 +258,12 @@ const ChannelPlayer: React.FC = () => {
       await downloader.download(duration); // Download specified duration in seconds
     } catch (err) {
       console.error('Download init error:', err);
-      toast({
-        title: 'Download initialization failed',
+      toast.error('Download initialization failed', {
         description: 'Check stream URL and permissions.',
-        variant: 'destructive',
       });
       setDownloadState(prev => ({ ...prev, isDownloading: false }));
     }
-  }, [channel, downloadState.isDownloading, downloadState.selectedDuration, downloadState.filename, toast]);
+  }, [channel, downloadState.isDownloading, downloadState.selectedDuration, downloadState.filename]);
 
   // Handle duration selection
   const handleDurationChange = (value: string) => {
@@ -287,7 +282,7 @@ const ChannelPlayer: React.FC = () => {
       downloadedBytes: 0, 
       totalBytes: 0 
     }));
-    toast({ title: 'Download cancelled' });
+    toast.info('Download cancelled');
   };
 
   // Toggle duration selector
@@ -353,6 +348,7 @@ const ChannelPlayer: React.FC = () => {
           Powered by HLS.js with adaptive bitrate for smooth streaming
         </div>
         <div className="flex items-center space-x-2">
+          
           {downloadState.isDownloading ? (
             <Button variant="outline" size="sm" onClick={handleCancelDownload}>
               <StopCircle className="h-4 w-4 mr-2" />
@@ -550,9 +546,6 @@ const ChannelPlayer: React.FC = () => {
               )}
               <div className="flex-1 min-w-0">
                 <CardTitle className="text-2xl font-bold truncate">{channel.name}</CardTitle>
-                {channel.description && (
-                  <CardDescription className="text-base mt-1">{channel.description}</CardDescription>
-                )}
                 <div className="flex items-center space-x-4 mt-2 text-sm text-muted-foreground">
                   <div className="flex items-center space-x-1">
                     <Clock className="h-4 w-4" />
@@ -591,42 +584,24 @@ const ChannelPlayer: React.FC = () => {
                 autoPlay={true}
                 muted={true}
                 authCookie={channel.authCookie} // Passes to proxy for upstream auth
-                showControls={true}
                 className="aspect-video w-full"
-                onPlay={() => toast({ title: `Now playing: ${channel.name}` })}
-                onPause={() => toast({ title: 'Stream paused' })}
+                onPlay={() => toast.success(`Now playing: ${channel.name}`)}
+                onPause={() => toast.info('Stream paused')}
                 onError={(err) => {
                   console.error('Player error:', err);
                   setError(err);
-                  toast({
-                    title: 'Playback Error',
+                  toast.error('Playback Error', {
                     description: err,
-                    variant: 'destructive',
-                    action: (
-                      <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-                        Retry
-                      </Button>
-                    ),
+                    action: {
+                        label: "Retry",
+                        onClick: () => window.location.reload()
+                    }
                   });
                 }}
               />
             </CardContent>
             {downloadSection}
           </Card>
-
-          {/* Recents Section (if applicable) */}
-          {user && channel.isRecent && (
-            <Card className="max-w-4xl mx-auto">
-              <CardHeader>
-                <CardTitle>Recently Watched</CardTitle>
-                <CardDescription>Quick access to your recent channels</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {/* Placeholder for recents grid - integrate with RecentsContext */}
-                <p className="text-sm text-muted-foreground">Your recents will appear here.</p>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Related Channels Section */}
           {relatedSection}
