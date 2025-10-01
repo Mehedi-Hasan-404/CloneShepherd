@@ -10,6 +10,7 @@ interface VideoPlayerProps {
   autoPlay?: boolean;
   muted?: boolean;
   className?: string;
+  useCorsProxy?: boolean;
 }
 
 interface QualityLevel {
@@ -24,7 +25,7 @@ interface SubtitleTrack {
   language: string;
 }
 
-const PLAYER_LOAD_TIMEOUT = 15000;
+const PLAYER_LOAD_TIMEOUT = 30000;
 const CONTROLS_HIDE_DELAY = 4000;
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -32,7 +33,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channelName,
   autoPlay = true,
   muted = true,
-  className = ""
+  className = "",
+  useCorsProxy = false
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -88,6 +90,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       }
     }
+
+    if (useCorsProxy && (url.includes('.m3u8') || url.includes('.mpd'))) {
+      cleanUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`;
+    }
   
     const urlLower = cleanUrl.toLowerCase();
     
@@ -104,7 +110,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return { type: 'dash', cleanUrl, drmInfo };
     }
     return { type: 'hls', cleanUrl, drmInfo };
-  }, []);
+  }, [useCorsProxy]);
 
   const destroyPlayer = useCallback(() => {
     if (hlsRef.current) {
@@ -167,7 +173,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       const Hls = (await import('hls.js')).default;
       if (Hls && Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true, debug: false, capLevelToPlayerSize: true, maxLoadingDelay: 1, maxBufferLength: 15, maxBufferSize: 20 * 1000 * 1000, fragLoadingTimeOut: 8000, manifestLoadingTimeOut: 4000, startLevel: -1, startPosition: -1 });
+        const hls = new Hls({ 
+          enableWorker: true, 
+          debug: false, 
+          capLevelToPlayerSize: true, 
+          maxLoadingDelay: 4,
+          maxBufferLength: 30,
+          maxBufferSize: 60 * 1000 * 1000,
+          fragLoadingTimeOut: 20000,
+          manifestLoadingTimeOut: 10000,
+          startLevel: -1, 
+          startPosition: -1,
+          lowLatencyMode: true,
+          backBufferLength: 90
+        });
         hlsRef.current = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
@@ -181,13 +200,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           startControlsTimer();
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
+          console.error('HLS Error:', data);
           if (!isMountedRef.current) return;
           if (data.fatal) {
             if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
             switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
-              case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-              default: setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Error: ${data.details}` })); destroyPlayer(); break;
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('Retrying network error...');
+                setTimeout(() => hls.startLoad(), 2000);
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Error: ${data.details}` }));
+                destroyPlayer();
+                break;
             }
           }
         });
@@ -213,6 +241,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         player.configure({ drm: { clearKeys: { [keyId]: key } } });
       }
       const onError = (event: any) => {
+        console.error('Shaka Error:', event.detail);
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         const errorCode = event.detail.code;
         let errorMessage = `Stream error (${errorCode})`;
@@ -261,7 +290,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const formatTime = (time: number): string => {
-    if (!isFinite(time) || time <= 0) return "0:00";
+    if (!isFinite(time) || time <= 0 || time === Infinity) return "LIVE";
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
