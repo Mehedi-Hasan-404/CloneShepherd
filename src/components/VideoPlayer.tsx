@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - Now with Accordion Menu
+// /src/components/VideoPlayer.tsx - Updated with Proxy Fallback Integration
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
@@ -11,6 +11,7 @@ interface VideoPlayerProps {
   muted?: boolean;
   className?: string;
   useCorsProxy?: boolean;
+  proxyBaseUrl?: string;  // Optional: Full URL if external proxy; empty string for relative /api/m3u8-proxy
 }
 
 interface QualityLevel {
@@ -34,7 +35,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   autoPlay = true,
   muted = true,
   className = "",
-  useCorsProxy = false
+  useCorsProxy = false,
+  proxyBaseUrl = ""  // Default: Use relative /api/m3u8-proxy if available
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -52,6 +54,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
+  const hasTriedProxyRef = useRef(false);
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -72,12 +75,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isPipActive: false,
   });
 
+  const getProxiedUrl = useCallback((url: string): string => {
+    if (!proxyBaseUrl && !useCorsProxy) return url;
+    const base = proxyBaseUrl || import.meta.env.VITE_PROXY_URL || '/api/m3u8-proxy';
+    return `${base}?url=${encodeURIComponent(url)}`;
+  }, [proxyBaseUrl, useCorsProxy]);
+
   const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
     let cleanUrl = url;
     let drmInfo = null;
     
     if (url.includes('?|')) {
-       const [baseUrl, drmParams] = url.split('?|');
+      const [baseUrl, drmParams] = url.split('?|');
       cleanUrl = baseUrl;
       
       if (drmParams) {
@@ -91,8 +100,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
 
-    if (useCorsProxy && (url.includes('.m3u8') || url.includes('.mpd'))) {
-      cleanUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`;
+    if (useCorsProxy) {
+      cleanUrl = getProxiedUrl(cleanUrl);
     }
   
     const urlLower = cleanUrl.toLowerCase();
@@ -110,7 +119,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return { type: 'dash', cleanUrl, drmInfo };
     }
     return { type: 'hls', cleanUrl, drmInfo };
-  }, [useCorsProxy]);
+  }, [useCorsProxy, getProxiedUrl]);
 
   const destroyPlayer = useCallback(() => {
     if (hlsRef.current) {
@@ -125,9 +134,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearTimeout(loadingTimeoutRef.current);
     }
     playerTypeRef.current = null;
+    hasTriedProxyRef.current = false;
   }, []);
 
-  const initializePlayer = useCallback(async () => {
+  const initializePlayer = useCallback(async (forceProxy = false) => {
     if (!streamUrl || !videoRef.current) {
       setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
       return;
@@ -152,13 +162,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }, PLAYER_LOAD_TIMEOUT);
 
     try {
-      const { type, cleanUrl, drmInfo } = detectStreamType(streamUrl);
+      let urlToUse = streamUrl;
+      if (forceProxy || useCorsProxy) {
+        urlToUse = getProxiedUrl(streamUrl);
+      }
+      const { type, cleanUrl, drmInfo } = detectStreamType(urlToUse);
       if (type === 'dash') {
         playerTypeRef.current = 'shaka';
         await initShakaPlayer(cleanUrl, video, drmInfo);
       } else if (type === 'hls') {
         playerTypeRef.current = 'hls';
-        await initHlsPlayer(cleanUrl, video);
+        await initHlsPlayer(cleanUrl, video, forceProxy);
       } else {
         playerTypeRef.current = 'native';
         initNativePlayer(cleanUrl, video);
@@ -167,9 +181,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
     }
-  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
+  }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType, useCorsProxy, getProxiedUrl]);
 
-  const initHlsPlayer = async (url: string, video: HTMLVideoElement) => {
+  const initHlsPlayer = async (url: string, video: HTMLVideoElement, forceProxy = false) => {
     try {
       const Hls = (await import('hls.js')).default;
       if (Hls && Hls.isSupported()) {
@@ -206,8 +220,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('Retrying network error...');
-                setTimeout(() => hls.startLoad(), 2000);
+                console.log('Network error detected - attempting proxy fallback...');
+                if (!hasTriedProxyRef.current && (proxyBaseUrl || import.meta.env.VITE_PROXY_URL)) {
+                  hasTriedProxyRef.current = true;
+                  setPlayerState(prev => ({ ...prev, isLoading: true, error: null }));
+                  setTimeout(() => initializePlayer(true), 1000);
+                } else {
+                  console.log('Proxy already tried or not available - giving up');
+                  setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Network Error: ${data.details}. Proxy unavailable.` }));
+                  destroyPlayer();
+                }
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
                 hls.recoverMediaError();
@@ -244,6 +266,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         console.error('Shaka Error:', event.detail);
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         const errorCode = event.detail.code;
+        if ((errorCode >= 6000 && errorCode < 7000) && !hasTriedProxyRef.current && (proxyBaseUrl || import.meta.env.VITE_PROXY_URL)) {
+          hasTriedProxyRef.current = true;
+          setPlayerState(prev => ({ ...prev, isLoading: true, error: null }));
+          setTimeout(() => initializePlayer(true), 1000);
+          return;
+        }
         let errorMessage = `Stream error (${errorCode})`;
         if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
         else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
@@ -279,7 +307,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const onError = () => {
       if (!isMountedRef.current) return;
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream with native player' }));
+      if (!hasTriedProxyRef.current && (proxyBaseUrl || import.meta.env.VITE_PROXY_URL)) {
+        hasTriedProxyRef.current = true;
+        setPlayerState(prev => ({ ...prev, isLoading: true, error: null }));
+        setTimeout(() => initializePlayer(true), 1000);
+      } else {
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream with native player' }));
+      }
     };
     video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
     video.addEventListener('error', onError, { once: true });
@@ -332,7 +366,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
-  const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
+  const handleRetry = useCallback(() => {
+    hasTriedProxyRef.current = false;
+    initializePlayer();
+  }, [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -423,7 +460,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="text-center text-white p-6">
           <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-400" />
           <div className="text-lg font-medium mb-2">Stream Error</div>
-          <div className="text-sm text-gray-300 mb-4">{playerState.error}</div>
+          <div className="text-sm text-gray-300 mb-4">{playerState.error} {proxyBaseUrl || import.meta.env.VITE_PROXY_URL ? '(Proxy fallback attempted)' : '(Configure proxy for auto-retry)'}</div>
           <button onClick={handleRetry} className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors">
             <RotateCcw size={14} /> Retry
           </button>
