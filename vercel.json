@@ -1,4 +1,3 @@
-// /vercel.json - Full Config with API Routes for Proxy (m3u8-proxy and ts-proxy)
 {
   "version": 2,
   "builds": [
