@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import Header from './Header';
 import BottomNav from './BottomNav';
 import Sidebar from './Sidebar';
@@ -9,6 +10,10 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+  
+  // Hide bottom nav on category and channel pages - only show on home and favorites
+  const showBottomNav = location.pathname === '/' || location.pathname === '/favorites';
 
   return (
     <div className="min-h-screen bg-background">
@@ -23,7 +28,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {children}
       </main>
 
-      <BottomNav />
+      {showBottomNav && <BottomNav />}
     </div>
   );
 };
