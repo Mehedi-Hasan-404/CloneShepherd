@@ -1,16 +1,18 @@
 // /src/pages/CategoryChannels.tsx
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
 import ChannelCard from '@/components/ChannelCard';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Tv, Search } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { AlertCircle, Tv, Search, ArrowLeft } from 'lucide-react';
 
 const CategoryChannels = () => {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,7 +61,7 @@ const CategoryChannels = () => {
           categoryName,
         };
       } else if (line && !line.startsWith('#') && currentChannel.name) {
-        // Create consistent ID format for M3U channels - same as ChannelPlayer
+        // Create consistent ID format for M3U channels
         const cleanChannelName = currentChannel.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const channel: PublicChannel = {
           id: `${categoryId}_${cleanChannelName}_${channels.length}`,
@@ -197,6 +199,18 @@ const CategoryChannels = () => {
 
   return (
     <div className="space-y-6">
+      {/* Back Button at top left */}
+      <div className="-mt-2">
+        <Button 
+          variant="ghost" 
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 pl-0"
+        >
+          <ArrowLeft size={18} />
+          Back
+        </Button>
+      </div>
+
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Tv size={24} />
