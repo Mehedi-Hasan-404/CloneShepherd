@@ -61,7 +61,13 @@ const Favorites = () => {
         {favorites
           .sort((a, b) => b.addedAt - a.addedAt)
           .map(channel => (
-            <ChannelCard key={channel.id} channel={channel} />
+            <ChannelCard 
+              key={channel.id} 
+              channel={{
+                ...channel,
+                categoryId: ''
+              }} 
+            />
           ))}
       </div>
     </div>

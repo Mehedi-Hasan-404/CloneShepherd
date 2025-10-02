@@ -201,7 +201,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   
   const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
     try {
-      const shaka = await import('shaka-player/dist/shaka-player.ui.js');
+      const shaka = await import('shaka-player/dist/shaka-player.ui');
       shaka.default.polyfill.installAll();
       if (!shaka.default.Player.isBrowserSupported()) throw new Error('This browser is not supported by Shaka Player');
       if (shakaPlayerRef.current) await shakaPlayerRef.current.destroy();
