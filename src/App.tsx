@@ -1,21 +1,29 @@
 // /src/App.tsx
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Router, Route, Switch } from "wouter";
 import { FavoritesProvider } from "@/contexts/FavoritesContext";
 import { RecentsProvider } from "@/contexts/RecentsContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Layout from "@/components/Layout";
-import Home from "@/pages/Home";
-import Favorites from "@/pages/Favorites";
-import CategoryChannels from "@/pages/CategoryChannels";
-import ChannelPlayer from "@/pages/ChannelPlayer";
-import Admin from "@/pages/Admin";
-import NotFound from "./pages/NotFound";
+
+const Home = lazy(() => import("@/pages/Home"));
+const Favorites = lazy(() => import("@/pages/Favorites"));
+const CategoryChannels = lazy(() => import("@/pages/CategoryChannels"));
+const ChannelPlayer = lazy(() => import("@/pages/ChannelPlayer"));
+const Admin = lazy(() => import("@/pages/Admin"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-accent"></div>
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -23,20 +31,34 @@ const App = () => (
       <ThemeProvider defaultTheme="dark" storageKey="iptv-ui-theme">
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <Router>
           <FavoritesProvider>
             <RecentsProvider>
-              <Routes>
-                <Route path="/" element={<Layout><Home /></Layout>} />
-                <Route path="/favorites" element={<Layout><Favorites /></Layout>} />
-                <Route path="/category/:slug" element={<Layout><CategoryChannels /></Layout>} />
-                <Route path="/channel/:channelId" element={<Layout><ChannelPlayer /></Layout>} />
-                <Route path="/admin/*" element={<Admin />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <Suspense fallback={<LoadingFallback />}>
+                <Switch>
+                  <Route path="/">
+                    <Layout><Home /></Layout>
+                  </Route>
+                  <Route path="/favorites">
+                    <Layout><Favorites /></Layout>
+                  </Route>
+                  <Route path="/category/:slug">
+                    {(params) => <Layout><CategoryChannels /></Layout>}
+                  </Route>
+                  <Route path="/channel/:channelId">
+                    {(params) => <Layout><ChannelPlayer /></Layout>}
+                  </Route>
+                  <Route path="/admin/:rest*">
+                    <Admin />
+                  </Route>
+                  <Route>
+                    <NotFound />
+                  </Route>
+                </Switch>
+              </Suspense>
             </RecentsProvider>
           </FavoritesProvider>
-        </BrowserRouter>
+        </Router>
       </ThemeProvider>
     </TooltipProvider>
   </QueryClientProvider>
