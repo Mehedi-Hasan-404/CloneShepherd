@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Router, Route, Switch } from "wouter";
+import { Router, Route } from "wouter"; // Removed Switch (doesn't exist in wouter)
 import { FavoritesProvider } from "@/contexts/FavoritesContext";
 import { RecentsProvider } from "@/contexts/RecentsContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -35,26 +35,26 @@ const App = () => (
           <FavoritesProvider>
             <RecentsProvider>
               <Suspense fallback={<LoadingFallback />}>
-                <Switch>
-                  <Route path="/">
-                    <Layout><Home /></Layout>
-                  </Route>
-                  <Route path="/favorites">
-                    <Layout><Favorites /></Layout>
-                  </Route>
-                  <Route path="/category/:slug">
-                    {(params) => <Layout><CategoryChannels /></Layout>}
-                  </Route>
-                  <Route path="/channel/:channelId">
-                    {(params) => <Layout><ChannelPlayer /></Layout>}
-                  </Route>
-                  <Route path="/admin/:rest*">
-                    <Admin />
-                  </Route>
-                  <Route>
-                    <NotFound />
-                  </Route>
-                </Switch>
+                {/* Multiple Route components as siblings for wouter routing */}
+                <Route path="/">
+                  <Layout><Home /></Layout>
+                </Route>
+                <Route path="/favorites">
+                  <Layout><Favorites /></Layout>
+                </Route>
+                <Route path="/category/:slug">
+                  {(params) => <Layout><CategoryChannels slug={params.slug} /></Layout>}
+                </Route>
+                <Route path="/channel/:channelId">
+                  {(params) => <Layout><ChannelPlayer channelId={params.channelId} /></Layout>}
+                </Route>
+                <Route path="/admin/:rest*">
+                  <Admin />
+                </Route>
+                {/* Catch-all for 404 */}
+                <Route>
+                  <NotFound />
+                </Route>
               </Suspense>
             </RecentsProvider>
           </FavoritesProvider>
