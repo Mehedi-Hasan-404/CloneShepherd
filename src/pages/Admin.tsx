@@ -1,6 +1,6 @@
 // /src/pages/Admin.tsx - With Stream Validation
 import { useState, useEffect } from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Route, Link, useLocation, Switch } from 'wouter';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -378,7 +378,7 @@ const CategoriesManager = () => {
                 <div className="text-sm text-text-secondary">
                   URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
                   {newCategory.m3uUrl && (
-                    <span className="ml-2 text-green-500">• M3U Playlist</span>
+                    <span className="ml-2 text-green-500">â€¢ M3U Playlist</span>
                   )}
                 </div>
               </div>
@@ -756,7 +756,7 @@ const ChannelsManager = () => {
                 <div className="text-sm text-text-secondary">
                   {categories.find(c => c.id === newChannel.categoryId)?.name}
                   {newChannel.streamUrl && (
-                    <span className="ml-2 text-green-500">• Stream URL provided</span>
+                    <span className="ml-2 text-green-500">â€¢ Stream URL provided</span>
                   )}
                 </div>
               </div>
@@ -810,7 +810,7 @@ const ChannelsManager = () => {
                     <div className="font-medium">{channel.name}</div>
                     <div className="text-sm text-text-secondary flex items-center gap-2">
                       <span>{channel.categoryName}</span>
-                      <span className="text-blue-500">• Manual</span>
+                      <span className="text-blue-500">â€¢ Manual</span>
                     </div>
                   </div>
                 </div>
@@ -945,8 +945,8 @@ const AdminDashboard = () => {
 
           {/* Main Content */}
           <div className="flex-1">
-            <Routes>
-              <Route path="/" element={
+            <Switch>
+              <Route path="/admin">
                 <div className="space-y-6">
                   <h2 className="text-2xl font-bold">Dashboard</h2>
                   
@@ -1101,7 +1101,7 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">✓</div>
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">âœ“</div>
                         <div>
                           <div className="font-medium">Ready to Stream</div>
                           <div className="text-sm text-text-secondary">Your IPTV system is ready for users to browse and watch</div>
@@ -1110,10 +1110,14 @@ const AdminDashboard = () => {
                     </div>
                   </div>
                 </div>
-              } />
-              <Route path="/categories" element={<CategoriesManager />} />
-              <Route path="/channels" element={<ChannelsManager />} />
-            </Routes>
+              </Route>
+              <Route path="/admin/categories">
+                <CategoriesManager />
+              </Route>
+              <Route path="/admin/channels">
+                <ChannelsManager />
+              </Route>
+            </Switch>
           </div>
         </div>
       </div>
