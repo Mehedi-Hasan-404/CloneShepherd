@@ -65,33 +65,36 @@
     "wouter": "^3.3.5"
   },
   "devDependencies": {
+    "@types/bun": "^1.1.3",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "8.45.0",
-    "@typescript-eslint/parser": "8.45.0",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@typescript-eslint/parser": "8.44.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react-swc": "4.1.0",
     "autoprefixer": "^10.4.19",
-    "eslint": "^9.36.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.23",
+    "eslint": "^9.7.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "lovable-tagger": "^1.1.10",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.4",
-    "typescript": "^5.9.3",
+    "typescript": "^5.2.2",
     "typescript-eslint": "8.45.0",
-    "vite": "^5.4.20"
+    "vite": "^5.4.1"
   },
   "description": "A modern IPTV streaming application built with React, TypeScript, and Firebase. Stream live TV channels organized by categories with favorites management and admin controls.",
   "main": "eslint.config.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Mehedi-Hasan-404/sharp-code-shepherd.git"
+    "url": "git+https://github.com/Mehedi-Hasan-404/sharp-code-shepherd.git "
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Mehedi-Hasan-404/sharp-code-shepherd/issues"
+    "url": "https://github.com/Mehedi-Hasan-404/sharp-code-shepherd/issues "
   },
   "homepage": "https://github.com/Mehedi-Hasan-404/sharp-code-shepherd#readme"
 }
