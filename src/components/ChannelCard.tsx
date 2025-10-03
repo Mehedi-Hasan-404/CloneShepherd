@@ -1,5 +1,5 @@
 // /src/components/ChannelCard.tsx
-import { Link } from 'react-router-dom';
+import { Link } from 'wouter';
 import { Play, Star } from 'lucide-react';
 import { PublicChannel } from '@/types';
 import { useFavorites } from '@/contexts/FavoritesContext';
