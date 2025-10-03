@@ -1,5 +1,5 @@
 // /src/pages/NotFound.tsx
-import { Link } from 'react-router-dom';
+import { Link } from 'wouter';
 import { Home, ArrowLeft, Tv } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 
