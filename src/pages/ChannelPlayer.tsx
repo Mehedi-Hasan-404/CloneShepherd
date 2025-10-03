@@ -1,6 +1,7 @@
 // /src/pages/ChannelPlayer.tsx - Fixed Version
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'wouter';
+import { useLocation } from 'wouter';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
@@ -17,7 +18,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 
 const ChannelPlayer = () => {
   const params = useParams<{ channelId: string }>();
-  const navigate = useNavigate();
+  const [, setLocation] = useLocation();
   const [channel, setChannel] = useState<PublicChannel | null>(null);
   const [allChannels, setAllChannels] = useState<PublicChannel[]>([]);
   const [filteredChannels, setFilteredChannels] = useState<PublicChannel[]>([]);
@@ -294,7 +295,7 @@ const ChannelPlayer = () => {
 
   const handleChannelSelect = (selectedChannel: PublicChannel) => {
     if (selectedChannel && selectedChannel.id) {
-      navigate(`/channel/${encodeURIComponent(selectedChannel.id)}`);
+      setLocation(`/channel/${encodeURIComponent(selectedChannel.id)}`);
     }
   };
 
@@ -323,7 +324,7 @@ const ChannelPlayer = () => {
       <div className="space-y-6 p-4 sm:p-6">
         <Button 
           variant="ghost" 
-          onClick={() => navigate(-1)}
+          onClick={() => window.history.back()}
           className="mb-4"
         >
           <ArrowLeft size={16} className="mr-2" />
@@ -347,7 +348,7 @@ const ChannelPlayer = () => {
         <div className="flex items-center justify-between -mt-2">
           <Button 
             variant="ghost" 
-            onClick={() => navigate(-1)}
+            onClick={() => window.history.back()}
             className="flex items-center gap-2 pl-0"
           >
             <ArrowLeft size={18} />
@@ -422,14 +423,14 @@ const ChannelPlayer = () => {
           </div>
 
           {filteredChannels.length > 0 ? (
-            <div className="channels-grid-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
               {filteredChannels.map(ch => {
                 const isRelatedFavorite = isFavorite(ch.id);
 
                 return (
                   <div 
                     key={ch.id} 
-                    className="channel-card cursor-pointer p-3 border rounded-lg hover:border-accent transition-all duration-300 bg-card shadow-sm hover:shadow-lg transform hover:scale-105 relative"
+                    className="group cursor-pointer border rounded-lg hover:border-accent transition-all duration-300 bg-card shadow-sm hover:shadow-lg transform hover:scale-105 relative overflow-hidden"
                     onClick={() => handleChannelSelect(ch)}
                   >
                     {/* Favorite Star Button */}
@@ -446,32 +447,36 @@ const ChannelPlayer = () => {
                           console.error('Error toggling favorite:', error);
                         }
                       }}
-                      className={`absolute top-2 right-2 p-1 rounded-full z-10 transition-all duration-300 transform hover:scale-110 ${
+                      className={`absolute top-2 right-2 p-1.5 rounded-full z-10 transition-all duration-300 transform hover:scale-110 ${
                         isRelatedFavorite
-                          ? 'bg-yellow-500 text-white shadow-lg animate-bounce'
+                          ? 'bg-yellow-500 text-white shadow-lg'
                           : 'bg-black/50 text-white hover:bg-black/70'
                       }`}
                       title={isRelatedFavorite ? 'Remove from favorites' : 'Add to favorites'}
                     >
                       <Star 
-                        size={12} 
+                        size={14} 
                         fill={isRelatedFavorite ? 'white' : 'none'} 
-                        className={isRelatedFavorite ? 'animate-pulse' : ''}
                       />
                     </button>
 
-                    <img
-                      src={ch.logoUrl || '/placeholder.svg'}
-                      alt={ch.name}
-                      className="w-full h-12 sm:h-16 object-contain mb-2 p-1"
-                      onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-                    />
-                    <p className="text-sm font-medium truncate text-center mb-2">{ch.name}</p>
-                    <Badge className="flex w-fit mx-auto items-center gap-1 text-xs transition-all duration-300 hover:bg-accent-hover" 
-                            variant="default">
-                      <Play size={12} />
-                      Watch
-                    </Badge>
+                    <div className="aspect-video bg-muted flex items-center justify-center p-3">
+                      <img
+                        src={ch.logoUrl || '/placeholder.svg'}
+                        alt={ch.name}
+                        className="w-full h-full object-contain"
+                        onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
+                      />
+                    </div>
+                    
+                    <div className="p-3 space-y-2">
+                      <p className="text-sm font-semibold line-clamp-2 min-h-[2.5rem] text-foreground">{ch.name}</p>
+                      <Badge className="flex w-full justify-center items-center gap-1.5 text-xs py-1.5" 
+                              variant="default">
+                        <Play size={12} />
+                        Watch Now
+                      </Badge>
+                    </div>
                   </div>
                 );
               })}

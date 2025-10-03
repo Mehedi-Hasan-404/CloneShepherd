@@ -757,6 +757,31 @@
     box-shadow: var(--shadow-glow);
   }
 
+  /* Animated Gradient Text */
+  .gradient-text {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--accent)),
+      hsl(var(--accent-hover)),
+      hsl(var(--accent)),
+      hsl(var(--accent-hover))
+    );
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 3s ease infinite;
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
   /* Landscape Mode Styles */
   body.landscape-mode {
     overflow: hidden;

@@ -201,11 +201,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   
   const initShakaPlayer = async (url: string, video: HTMLVideoElement, drmInfo?: any) => {
     try {
-      const shaka = await import('shaka-player/dist/shaka-player.ui');
-      shaka.default.polyfill.installAll();
-      if (!shaka.default.Player.isBrowserSupported()) throw new Error('This browser is not supported by Shaka Player');
+      // @ts-expect-error - Dynamic import workaround for shaka-player
+      const shakaModule = await import('shaka-player');
+      const shaka = shakaModule.default || shakaModule;
+      
+      if (shaka.polyfill) {
+        shaka.polyfill.installAll();
+      }
+      
+      const Player = shaka.Player;
+      if (!Player || !Player.isBrowserSupported()) {
+        throw new Error('This browser is not supported by Shaka Player');
+      }
       if (shakaPlayerRef.current) await shakaPlayerRef.current.destroy();
-      const player = new shaka.default.Player(video);
+      const player = new Player(video);
       shakaPlayerRef.current = player;
       player.configure({ streaming: { bufferingGoal: 15, rebufferingGoal: 8, bufferBehind: 15, retryParameters: { timeout: 4000, maxAttempts: 2, baseDelay: 300, backoffFactor: 1.3, fuzzFactor: 0.2 }, useNativeHlsOnSafari: true }, manifest: { retryParameters: { timeout: 4000, maxAttempts: 2, baseDelay: 300, backoffFactor: 1.3, fuzzFactor: 0.2 }, dash: { clockSyncUri: '' } }, abr: { enabled: true, defaultBandwidthEstimate: 1500000, bandwidthUpgradeSeconds: 3, bandwidthDowngradeSeconds: 6 } });
       if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
@@ -373,7 +382,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
   }, []);
   const toggleFullscreen = useCallback(async () => {
-    const container = containerRef.current; if (!container) return; try { if (document.fullscreenElement) await document.exitFullscreen(); else await container.requestFullscreen(); } catch (error) { console.warn('Fullscreen error:', error); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
+    const container = containerRef.current;
+    if (!container) return;
+    
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        // Exit landscape lock when exiting fullscreen
+        if (screen.orientation && 'unlock' in screen.orientation) {
+          try {
+            (screen.orientation as any).unlock();
+          } catch (err) {
+            console.log('Could not unlock orientation');
+          }
+        }
+      } else {
+        await container.requestFullscreen();
+        // Try to lock to landscape when entering fullscreen
+        if (screen.orientation && 'lock' in screen.orientation) {
+          try {
+            await (screen.orientation as any).lock('landscape').catch(() => {
+              console.log('Orientation lock not supported');
+            });
+          } catch (err) {
+            console.log('Could not lock orientation');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Fullscreen error:', error);
+    }
+    
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
   }, []);
   const togglePip = useCallback(async () => {
     const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();

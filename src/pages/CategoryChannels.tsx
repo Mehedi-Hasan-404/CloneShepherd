@@ -1,6 +1,7 @@
 // /src/pages/CategoryChannels.tsx
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'wouter';
+import { useLocation } from 'wouter';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
@@ -11,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle, Tv, Search, ArrowLeft } from 'lucide-react';
 
 const CategoryChannels = () => {
-  const { slug } = useParams<{ slug: string }>();
-  const navigate = useNavigate();
+  const params = useParams<{ slug: string }>();
+  const slug = params.slug;
+  const [, setLocation] = useLocation();
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(true);
@@ -203,7 +205,7 @@ const CategoryChannels = () => {
       <div className="-mt-2">
         <Button 
           variant="ghost" 
-          onClick={() => navigate('/')}
+          onClick={() => setLocation('/')}
           className="flex items-center gap-2 pl-0"
         >
           <ArrowLeft size={18} />
@@ -260,7 +262,7 @@ const CategoryChannels = () => {
           </p>
         </div>
       ) : (
-        <div className="channels-grid-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
           {filteredChannels.map(channel => (
             <ChannelCard key={channel.id} channel={channel} />
           ))}

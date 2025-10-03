@@ -76,9 +76,11 @@ const Home = () => {
             animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
             animationDelay: '1s'
           }} />
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-accent to-blue-500 bg-clip-text text-transparent">
+        <h1 className="text-3xl sm:text-4xl font-bold text-center mb-2">
+          <span className="gradient-text">
             Live TV Pro
-          </h1>
+          </span>
+        </h1>
           <Sparkles size={24} className="text-yellow-500" style={{ 
             animation: 'bounce 2s infinite',
             animationDelay: '1.5s'
