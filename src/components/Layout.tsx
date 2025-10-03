@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'wouter';
 import Header from './Header';
 import BottomNav from './BottomNav';
 import Sidebar from './Sidebar';
