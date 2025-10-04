@@ -1,6 +1,5 @@
 // /src/pages/ChannelPlayer.tsx - Fixed Version
 import { useState, useEffect } from 'react';
-import { useParams } from 'wouter';
 import { useLocation } from 'wouter';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -16,8 +15,11 @@ import { useRecents } from '@/contexts/RecentsContext';
 import { toast } from "@/components/ui/sonner";
 import ErrorBoundary from '@/components/ErrorBoundary';
 
-const ChannelPlayer = () => {
-  const params = useParams<{ channelId: string }>();
+interface ChannelPlayerProps {
+  channelId: string;
+}
+
+const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
   const [, setLocation] = useLocation();
   const [channel, setChannel] = useState<PublicChannel | null>(null);
   const [allChannels, setAllChannels] = useState<PublicChannel[]>([]);
@@ -28,8 +30,6 @@ const ChannelPlayer = () => {
 
   const { isFavorite, addFavorite, removeFavorite } = useFavorites();
   const { addRecent } = useRecents();
-
-  const channelId = params.channelId;
 
   useEffect(() => {
     if (channelId) {

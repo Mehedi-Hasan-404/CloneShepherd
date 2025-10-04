@@ -7,7 +7,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const location = useLocation();
+  const [location] = useLocation();
 
   const menuItems = [
     {
@@ -58,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   to={path}
                   onClick={onClose}
                   className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                    location.pathname === path
+                    location === path
                       ? 'bg-accent text-white'
                       : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
                   }`}

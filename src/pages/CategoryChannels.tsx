@@ -1,6 +1,5 @@
 // /src/pages/CategoryChannels.tsx
 import { useEffect, useState } from 'react';
-import { useParams } from 'wouter';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
@@ -11,9 +10,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, Tv, Search, ArrowLeft } from 'lucide-react';
 
-const CategoryChannels = () => {
-  const params = useParams<{ slug: string }>(); // Fixed destructuring
-  const slug = params.slug || ''; // Added fallback
+interface CategoryChannelsProps {
+  slug: string;
+}
+
+const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(true);

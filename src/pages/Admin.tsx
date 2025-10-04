@@ -841,7 +841,7 @@ const ChannelsManager = () => {
 
 // Main Admin Dashboard
 const AdminDashboard = () => {
-  const location = useLocation();
+  const [location] = useLocation();
   const { user } = useAuth();
   const [stats, setStats] = useState({
     totalCategories: 0,
@@ -920,8 +920,8 @@ const AdminDashboard = () => {
               <ul className="space-y-2">
                 {navItems.map(item => {
                   const isActive = item.exact 
-                    ? location.pathname === item.path 
-                    : location.pathname.startsWith(item.path);
+                    ? location === item.path 
+                    : location.startsWith(item.path);
                   
                   return (
                     <li key={item.path}>

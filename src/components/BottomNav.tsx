@@ -2,7 +2,7 @@ import { Home, Star } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 
 const BottomNav = () => {
-  const location = useLocation();
+  const [location] = useLocation();
 
   const navItems = [
     {
@@ -23,7 +23,7 @@ const BottomNav = () => {
         <Link
           key={path}
           to={path}
-          className={`nav-item ${location.pathname === path ? 'active' : ''}`}
+          className={`nav-item ${location === path ? 'active' : ''}`}
         >
           <Icon size={20} />
           <span>{label}</span>
