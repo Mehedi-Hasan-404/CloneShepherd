@@ -178,6 +178,12 @@
     font-size: 1.125rem;
     font-weight: 700;
     color: hsl(var(--text-primary));
+    text-decoration: none;
+    transition: opacity var(--transition-fast);
+  }
+  
+  .logo-section:hover {
+    opacity: 0.8;
   }
 
   .menu-btn {
