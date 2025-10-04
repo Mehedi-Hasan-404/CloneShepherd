@@ -180,6 +180,13 @@
     color: hsl(var(--text-primary));
     text-decoration: none;
     transition: opacity var(--transition-fast);
+    line-height: 1;
+  }
+  
+  .logo-section span {
+    line-height: 1;
+    display: flex;
+    align-items: center;
   }
   
   .logo-section:hover {
