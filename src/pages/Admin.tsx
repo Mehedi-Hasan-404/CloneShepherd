@@ -2,11 +2,11 @@
 import { useState, useEffect } from 'react';
 import { Route, Link, useLocation, Switch } from 'wouter';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, writeBatch } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { Category, AdminChannel } from '@/types';
-import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon, Tv, Users, BarChart3, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Shield, LogOut, Plus, Edit, Trash2, Save, X, Link as LinkIcon, Tv, Users, BarChart3, CheckCircle, XCircle, Loader2, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from "@/components/ui/sonner";
 
 // Admin Login Component
@@ -119,12 +119,29 @@ const CategoriesManager = () => {
   const fetchCategories = async () => {
     try {
       const categoriesCol = collection(db, 'categories');
-      const q = query(categoriesCol, orderBy('name'));
-      const snapshot = await getDocs(q);
-      const categoriesData = snapshot.docs.map((doc: any) => ({
+      const snapshot = await getDocs(categoriesCol);
+      let categoriesData = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       })) as Category[];
+      
+      // Backfill order field for categories that don't have it
+      const needsBackfill = categoriesData.some(cat => cat.order === undefined);
+      if (needsBackfill) {
+        // Sort alphabetically first for consistent backfill
+        categoriesData.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Update each category with order value
+        for (let i = 0; i < categoriesData.length; i++) {
+          if (categoriesData[i].order === undefined) {
+            await updateDoc(doc(db, 'categories', categoriesData[i].id), { order: i });
+            categoriesData[i].order = i;
+          }
+        }
+      }
+      
+      // Sort by order field
+      categoriesData.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -208,6 +225,7 @@ const CategoriesManager = () => {
         slug: finalSlug,
         iconUrl: newCategory.iconUrl.trim() || '',
         m3uUrl: newCategory.m3uUrl.trim() || '',
+        order: editingCategory?.order ?? Math.max(...categories.map(c => c.order ?? 0), -1) + 1,
       };
 
       if (editingCategory) {
@@ -259,6 +277,43 @@ const CategoriesManager = () => {
       console.error('Error deleting category:', error);
       toast.error("Delete Failed", {
         description: "Failed to delete category. Please try again.",
+      });
+    }
+  };
+
+  const handleReorderCategory = async (categoryId: string, direction: 'up' | 'down') => {
+    const currentIndex = categories.findIndex(cat => cat.id === categoryId);
+    if (currentIndex === -1) return;
+    
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= categories.length) return;
+    
+    const currentCategory = categories[currentIndex];
+    const targetCategory = categories[targetIndex];
+    
+    try {
+      // Use batched writes to atomically swap order values
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'categories', currentCategory.id), { 
+        order: targetCategory.order 
+      });
+      batch.update(doc(db, 'categories', targetCategory.id), { 
+        order: currentCategory.order 
+      });
+      
+      await batch.commit();
+      
+      // Refresh categories
+      await fetchCategories();
+      
+      toast.success("Order Updated", {
+        description: `${currentCategory.name} moved ${direction}.`,
+      });
+    } catch (error) {
+      console.error('Error reordering category:', error);
+      toast.error("Reorder Failed", {
+        description: "Failed to update category order. Please try again.",
       });
     }
   };
@@ -378,7 +433,7 @@ const CategoriesManager = () => {
                 <div className="text-sm text-text-secondary">
                   URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
                   {newCategory.m3uUrl && (
-                    <span className="ml-2 text-green-500">Ã¢â‚¬Â¢ M3U Playlist</span>
+                    <span className="ml-2 text-green-500">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ M3U Playlist</span>
                   )}
                 </div>
               </div>
@@ -415,7 +470,7 @@ const CategoriesManager = () => {
           </p>
         ) : (
           <div className="space-y-2">
-            {categories.map(category => (
+            {categories.map((category, index) => (
               <div key={category.id} className="flex items-center justify-between p-3 bg-bg-secondary rounded-lg">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-white">
@@ -451,6 +506,22 @@ const CategoriesManager = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => handleReorderCategory(category.id, 'up')}
+                    disabled={index === 0}
+                    className="p-2 text-gray-400 hover:text-gray-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Move up"
+                  >
+                    <ArrowUp size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleReorderCategory(category.id, 'down')}
+                    disabled={index === categories.length - 1}
+                    className="p-2 text-gray-400 hover:text-gray-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Move down"
+                  >
+                    <ArrowDown size={16} />
+                  </button>
                   <button
                     onClick={() => handleEditCategory(category)}
                     className="p-2 text-blue-400 hover:text-blue-300 transition-colors"
@@ -516,12 +587,20 @@ const ChannelsManager = () => {
   const fetchCategories = async () => {
     try {
       const categoriesCol = collection(db, 'categories');
-      const q = query(categoriesCol, orderBy('name'));
-      const snapshot = await getDocs(q);
-      const categoriesData = snapshot.docs.map((doc: any) => ({
+      const snapshot = await getDocs(categoriesCol);
+      let categoriesData = snapshot.docs.map((doc: any) => ({
         id: doc.id,
         ...doc.data()
       })) as Category[];
+      
+      // Sort by order field (with fallback to name if order is missing)
+      categoriesData.sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) {
+          return a.order - b.order;
+        }
+        return a.name.localeCompare(b.name);
+      });
+      
       setCategories(categoriesData);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -756,7 +835,7 @@ const ChannelsManager = () => {
                 <div className="text-sm text-text-secondary">
                   {categories.find(c => c.id === newChannel.categoryId)?.name}
                   {newChannel.streamUrl && (
-                    <span className="ml-2 text-green-500">Ã¢â‚¬Â¢ Stream URL provided</span>
+                    <span className="ml-2 text-green-500">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Stream URL provided</span>
                   )}
                 </div>
               </div>
@@ -810,7 +889,7 @@ const ChannelsManager = () => {
                     <div className="font-medium">{channel.name}</div>
                     <div className="text-sm text-text-secondary flex items-center gap-2">
                       <span>{channel.categoryName}</span>
-                      <span className="text-blue-500">Ã¢â‚¬Â¢ Manual</span>
+                      <span className="text-blue-500">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Manual</span>
                     </div>
                   </div>
                 </div>
@@ -1101,7 +1180,7 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">Ã¢Å“â€œ</div>
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“</div>
                         <div>
                           <div className="font-medium">Ready to Stream</div>
                           <div className="text-sm text-text-secondary">Your IPTV system is ready for users to browse and watch</div>
