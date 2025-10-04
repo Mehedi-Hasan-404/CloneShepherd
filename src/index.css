@@ -123,6 +123,13 @@
     transition: background-color var(--transition-normal), color var(--transition-normal);
   }
 
+  /* Remove bottom padding on desktop/tablet where bottom nav is hidden */
+  @media (min-width: 768px) {
+    body {
+      padding-bottom: 0;
+    }
+  }
+
   body.fullscreen-mode {
     overflow: hidden;
     padding: 0;
@@ -214,6 +221,13 @@
     padding: 1rem;
   }
 
+  /* Adjust main content height on desktop/tablet */
+  @media (min-width: 768px) {
+    .main-content {
+      min-height: calc(100vh - var(--header-height));
+    }
+  }
+
   /* Bottom Navigation */
   .bottom-nav {
     position: fixed;
@@ -227,6 +241,13 @@
     align-items: center;
     box-shadow: 0 -2px 8px rgba(0,0,0,0.3);
     z-index: 1000;
+  }
+
+  /* Hide bottom nav on desktop/tablet devices */
+  @media (min-width: 768px) {
+    .bottom-nav {
+      display: none;
+    }
   }
 
   .nav-item {
