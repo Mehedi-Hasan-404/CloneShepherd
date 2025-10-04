@@ -10,6 +10,7 @@ export interface Category {
   slug: string;
   iconUrl?: string;
   m3uUrl?: string; // M3U playlist URL
+  order?: number; // Display order for sorting categories
 }
 
 export interface PublicChannel {
