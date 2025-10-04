@@ -378,7 +378,7 @@ const CategoriesManager = () => {
                 <div className="text-sm text-text-secondary">
                   URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
                   {newCategory.m3uUrl && (
-                    <span className="ml-2 text-green-500">â€¢ M3U Playlist</span>
+                    <span className="ml-2 text-green-500">Ã¢â‚¬Â¢ M3U Playlist</span>
                   )}
                 </div>
               </div>
@@ -585,7 +585,7 @@ const ChannelsManager = () => {
 
       const channelData = {
         name: newChannel.name.trim(),
-        logoUrl: newChannel.logoUrl.trim() || '/placeholder.svg',
+        logoUrl: newChannel.logoUrl.trim() || '/channel-placeholder.svg',
         streamUrl: newChannel.streamUrl.trim(),
         categoryId: newChannel.categoryId,
         categoryName: category.name,
@@ -744,11 +744,11 @@ const ChannelsManager = () => {
             <p className="text-sm text-text-secondary mb-2">Preview:</p>
             <div className="flex items-center gap-3">
               <img
-                src={newChannel.logoUrl || '/placeholder.svg'}
+                src={newChannel.logoUrl || '/channel-placeholder.svg'}
                 alt={newChannel.name}
                 className="w-10 h-10 object-contain bg-white rounded"
                 onError={(e) => {
-                  e.currentTarget.src = '/placeholder.svg';
+                  e.currentTarget.src = '/channel-placeholder.svg';
                 }}
               />
               <div>
@@ -756,7 +756,7 @@ const ChannelsManager = () => {
                 <div className="text-sm text-text-secondary">
                   {categories.find(c => c.id === newChannel.categoryId)?.name}
                   {newChannel.streamUrl && (
-                    <span className="ml-2 text-green-500">â€¢ Stream URL provided</span>
+                    <span className="ml-2 text-green-500">Ã¢â‚¬Â¢ Stream URL provided</span>
                   )}
                 </div>
               </div>
@@ -803,14 +803,14 @@ const ChannelsManager = () => {
                     alt={channel.name}
                     className="w-10 h-10 object-contain bg-white rounded"
                     onError={(e) => {
-                      e.currentTarget.src = '/placeholder.svg';
+                      e.currentTarget.src = '/channel-placeholder.svg';
                     }}
                   />
                   <div>
                     <div className="font-medium">{channel.name}</div>
                     <div className="text-sm text-text-secondary flex items-center gap-2">
                       <span>{channel.categoryName}</span>
-                      <span className="text-blue-500">â€¢ Manual</span>
+                      <span className="text-blue-500">Ã¢â‚¬Â¢ Manual</span>
                     </div>
                   </div>
                 </div>
@@ -1101,7 +1101,7 @@ const AdminDashboard = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 p-3 bg-bg-secondary rounded-lg">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">âœ“</div>
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm font-bold">Ã¢Å“â€œ</div>
                         <div>
                           <div className="font-medium">Ready to Stream</div>
                           <div className="text-sm text-text-secondary">Your IPTV system is ready for users to browse and watch</div>
