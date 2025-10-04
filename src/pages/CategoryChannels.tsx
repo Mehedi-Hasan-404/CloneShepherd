@@ -52,7 +52,7 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
         const nameMatch = line.match(/,(.+)$/);
         const channelName = nameMatch ? nameMatch[1].trim() : 'Unknown Channel';
         const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-        const logoUrl = logoMatch ? logoMatch[1] : '/placeholder.svg';
+        const logoUrl = logoMatch ? logoMatch[1] : '/channel-placeholder.svg';
         
         currentChannel = {
           name: channelName,
@@ -65,7 +65,7 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
         const channel: PublicChannel = {
           id: `${categoryId}_${cleanChannelName}_${channels.length}`,
           name: currentChannel.name,
-          logoUrl: currentChannel.logoUrl || '/placeholder.svg',
+          logoUrl: currentChannel.logoUrl || '/channel-placeholder.svg',
           streamUrl: line,
           categoryId,
           categoryName,
@@ -102,8 +102,8 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
       const categorySnapshot = await getDocs(categoryQuery);
 
       if (categorySnapshot.empty) {
-        setError('Category not found');
         setLoading(false);
+        setLocation('/404');
         return;
       }
 
