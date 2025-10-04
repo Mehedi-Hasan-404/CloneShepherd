@@ -72,7 +72,7 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
         const nameMatch = line.match(/,(.+)$/);
         const channelName = nameMatch ? nameMatch[1].trim() : 'Unknown Channel';
         const logoMatch = line.match(/tvg-logo="([^"]+)"/);
-        const logoUrl = logoMatch ? logoMatch[1] : '/placeholder.svg';
+        const logoUrl = logoMatch ? logoMatch[1] : '/channel-placeholder.svg';
 
         currentChannel = {
           name: channelName,
@@ -85,7 +85,7 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
         const channel: PublicChannel = {
           id: `${categoryId}_${cleanChannelName}_${channels.length}`,
           name: currentChannel.name,
-          logoUrl: currentChannel.logoUrl || '/placeholder.svg',
+          logoUrl: currentChannel.logoUrl || '/channel-placeholder.svg',
           streamUrl: line,
           categoryId,
           categoryName,
@@ -191,7 +191,7 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
             foundChannel = {
               id: doc.id,
               name: channelData.name || 'Unknown Channel',
-              logoUrl: channelData.logoUrl || '/placeholder.svg',
+              logoUrl: channelData.logoUrl || '/channel-placeholder.svg',
               streamUrl: channelData.streamUrl || '',
               categoryId: channelData.categoryId || '',
               categoryName: channelData.categoryName || 'Unknown Category'
@@ -233,7 +233,8 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
       }
 
       if (!foundChannel) {
-        setError('Channel not found. The channel may have been removed or the link is invalid.');
+        setLoading(false);
+        setLocation('/404');
         return;
       }
 
@@ -378,10 +379,10 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
         {/* Channel Info */}
         <div className="flex items-center gap-4">
           <img
-            src={channel.logoUrl || '/placeholder.svg'}
+            src={channel.logoUrl || '/channel-placeholder.svg'}
             alt={channel.name}
             className="w-16 h-16 object-contain p-1 bg-white dark:bg-gray-800 rounded-lg shadow"
-            onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
+            onError={(e) => { e.currentTarget.src = '/channel-placeholder.svg'; }}
           />
           <div>
             <h1 className="text-2xl font-bold">{channel.name}</h1>
@@ -462,10 +463,10 @@ const ChannelPlayer = ({ channelId }: ChannelPlayerProps) => {
 
                     <div className="aspect-video bg-muted flex items-center justify-center p-3">
                       <img
-                        src={ch.logoUrl || '/placeholder.svg'}
+                        src={ch.logoUrl || '/channel-placeholder.svg'}
                         alt={ch.name}
                         className="w-full h-full object-contain"
-                        onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
+                        onError={(e) => { e.currentTarget.src = '/channel-placeholder.svg'; }}
                       />
                     </div>
                     
