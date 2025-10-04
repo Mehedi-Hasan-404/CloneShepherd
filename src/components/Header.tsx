@@ -17,10 +17,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
 
   return (
     <header className="app-header header-animate">
-      <Link to="/" className="logo-section animate-fade-in">
+      <div className="logo-section animate-fade-in">
         <Tv size={24} className="text-accent hover-glow animate-pulse" />
         <span className="animate-slide-in-left">Live TV Pro</span>
-      </Link>
+      </div>
 
       {/* Desktop Navigation - hidden on mobile */}
       <nav className="hidden md:flex items-center gap-1">
