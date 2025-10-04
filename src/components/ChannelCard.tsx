@@ -41,7 +41,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ channel }) => {
           src={channel.logoUrl}
           alt={`${channel.name} logo`}
           onError={(e) => {
-            e.currentTarget.src = '/placeholder.svg';
+            e.currentTarget.src = '/channel-placeholder.svg';
           }}
         />
         <div className="play-overlay">
