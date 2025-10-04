@@ -18,7 +18,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   return (
     <header className="app-header header-animate">
       <div className="logo-section animate-fade-in">
-        <Tv size={24} className="text-accent hover-glow animate-pulse" />
+        <Tv size={24} className="text-accent hover-glow animate-pulse -translate-y-[2px]" />
         <span className="animate-slide-in-left">Live TV Pro</span>
       </div>
 
