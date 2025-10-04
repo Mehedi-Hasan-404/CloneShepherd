@@ -23,13 +23,20 @@ const Home = () => {
       setError(null);
       
       const categoriesCol = collection(db, 'categories');
-      const q = query(categoriesCol, orderBy('name'));
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(categoriesCol);
       
-      const categoriesData = snapshot.docs.map(doc => ({
+      let categoriesData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Category[];
+      
+      // Sort by order field (with fallback to name if order is missing)
+      categoriesData.sort((a, b) => {
+        if (a.order !== undefined && b.order !== undefined) {
+          return a.order - b.order;
+        }
+        return a.name.localeCompare(b.name);
+      });
       
       setCategories(categoriesData);
     } catch (error) {
