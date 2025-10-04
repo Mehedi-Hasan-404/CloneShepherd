@@ -1,5 +1,6 @@
 // /src/pages/CategoryChannels.tsx
 import { useEffect, useState } from 'react';
+import { useLocation } from 'wouter';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PublicChannel, Category } from '@/types';
@@ -15,6 +16,7 @@ interface CategoryChannelsProps {
 }
 
 const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
+  const [, setLocation] = useLocation();
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [category, setCategory] = useState<Category | null>(null);
   const [loading, setLoading] = useState(true);
@@ -175,7 +177,7 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
     return (
       <ErrorBoundary>
         <div className="space-y-6">
-          <Button variant="ghost" className="mb-4">
+          <Button variant="ghost" className="mb-4" onClick={() => setLocation('/')} data-testid="button-back">
             <ArrowLeft size={16} />
             Back
           </Button>
@@ -191,7 +193,7 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
   return (
     <ErrorBoundary>
       <div className="space-y-6">
-        <Button variant="ghost" className="mb-4">
+        <Button variant="ghost" className="mb-4" onClick={() => setLocation('/')} data-testid="button-back">
           <ArrowLeft size={16} />
           Back
         </Button>
