@@ -1,7 +1,6 @@
 // /src/components/VideoPlayer.tsx - Responsive Settings Overlay
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Lock } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Music } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface VideoPlayerProps {
@@ -20,6 +19,12 @@ interface QualityLevel {
 
 interface SubtitleTrack {
   id: string;
+  label: string;
+  language: string;
+}
+
+interface AudioTrack {
+  id: number;
   label: string;
   language: string;
 }
@@ -71,7 +76,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentQuality: -1, 
     availableQualities: [] as QualityLevel[],
     availableSubtitles: [] as SubtitleTrack[],
+    availableAudioTracks: [] as AudioTrack[],
     currentSubtitle: '',
+    currentAudioTrack: -1,
     isSeeking: false,
     isPipActive: false,
   });
@@ -181,9 +188,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({ height: level.height || 0, bitrate: Math.round(level.bitrate / 1000), id: index }));
+          
+          // Get audio tracks
+          const audioTracks: AudioTrack[] = hls.audioTracks.map((track: any, index: number) => ({
+            id: index,
+            label: track.name || track.lang || `Audio ${index + 1}`,
+            language: track.lang || 'unknown'
+          }));
+          
           video.muted = muted;
           if (autoPlay) video.play().catch(console.warn);
-          setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: levels, currentQuality: hls.currentLevel, isMuted: video.muted, isPlaying: true, showControls: true }));
+          setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: levels, availableAudioTracks: audioTracks, currentQuality: hls.currentLevel, currentAudioTrack: hls.audioTrack, isMuted: video.muted, isPlaying: true, showControls: true }));
           startControlsTimer();
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -244,9 +259,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const qualities: QualityLevel[] = tracks.map(track => ({ height: track.height || 0, bitrate: Math.round(track.bandwidth / 1000), id: track.id }));
       const textTracks = player.getTextTracks();
       const subtitles: SubtitleTrack[] = textTracks.map(track => ({ id: track.id.toString(), label: track.label || track.language || 'Unknown', language: track.language || 'unknown' }));
+      
+      // Get audio tracks from Shaka
+      const audioTracks: AudioTrack[] = player.getAudioLanguagesAndRoles().map((audioInfo: any, index: number) => ({
+        id: index,
+        label: audioInfo.language || `Audio ${index + 1}`,
+        language: audioInfo.language || 'unknown'
+      }));
+      
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: qualities, availableSubtitles: subtitles, currentQuality: -1, isMuted: video.muted, isPlaying: true, showControls: true }));
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: qualities, availableSubtitles: subtitles, availableAudioTracks: audioTracks, currentQuality: -1, isMuted: video.muted, isPlaying: true, showControls: true }));
       startControlsTimer();
       return () => player.removeEventListener('error', onError);
     } catch (error) { throw error; }
@@ -318,6 +341,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
+  const changeAudioTrack = useCallback((trackId: number) => {
+    if (playerTypeRef.current === 'hls' && hlsRef.current) {
+      hlsRef.current.audioTrack = trackId;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      const audioLanguages = shakaPlayerRef.current.getAudioLanguagesAndRoles();
+      if (audioLanguages[trackId]) {
+        shakaPlayerRef.current.selectAudioLanguage(audioLanguages[trackId].language);
+      }
+    }
+    setPlayerState(prev => ({ ...prev, currentAudioTrack: trackId, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, []);
+
   const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
@@ -365,6 +401,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     video.addEventListener('play', handlePlay); video.addEventListener('pause', handlePause); video.addEventListener('waiting', handleWaiting); video.addEventListener('playing', handlePlaying); video.addEventListener('timeupdate', handleTimeUpdate); video.addEventListener('volumechange', handleVolumeChange); video.addEventListener('enterpictureinpicture', handleEnterPip); video.addEventListener('leavepictureinpicture', handleLeavePip); document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => { video.removeEventListener('play', handlePlay); video.removeEventListener('pause', handlePause); video.removeEventListener('waiting', handleWaiting); video.removeEventListener('playing', handlePlaying); video.removeEventListener('timeupdate', handleTimeUpdate); video.removeEventListener('volumechange', handleVolumeChange); video.removeEventListener('enterpictureinpicture', handleEnterPip); video.removeEventListener('leavepictureinpicture', handleLeavePip); document.removeEventListener('fullscreenchange', handleFullscreenChange); };
   }, [playerState.isSeeking, resetControlsTimer]);
+
+  // Auto-hide controls when settings is closed
+  useEffect(() => {
+    if (!playerState.showSettings && playerState.isPlaying) {
+      startControlsTimer();
+    }
+  }, [playerState.showSettings, playerState.isPlaying, startControlsTimer]);
 
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
@@ -428,7 +471,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
-        // Exit landscape lock when exiting fullscreen
         if (screen.orientation && 'unlock' in screen.orientation) {
           try {
             (screen.orientation as any).unlock();
@@ -438,7 +480,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       } else {
         await container.requestFullscreen();
-        // Try to lock to landscape when entering fullscreen
         if (screen.orientation && 'lock' in screen.orientation) {
           try {
             await (screen.orientation as any).lock('landscape').catch(() => {
@@ -601,20 +642,49 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
         
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors">
-          <Lock size={18} />
-          <span>Lock screen</span>
-        </button>
-        
-        <button className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors">
-          <div className="flex items-center gap-3">
-            <Settings size={18} />
-            <span>More</span>
+        {playerState.availableAudioTracks.length > 0 && (
+          <div className="space-y-1">
+            <button 
+              onClick={() => toggleSettingItem('audio')}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Music size={18} />
+                <span>Audio</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs">
+                  {playerState.availableAudioTracks.find(a => a.id === playerState.currentAudioTrack)?.label || 'Default'}
+                </span>
+                <ChevronRight size={14} className={`transition-transform ${expandedSettingItem === 'audio' ? 'rotate-90' : ''}`} />
+              </div>
+            </button>
+            {expandedSettingItem === 'audio' && (
+              <div className="space-y-1 pl-10 pb-2">
+                {playerState.availableAudioTracks.map((audioTrack) => (
+                  <button key={audioTrack.id} onClick={() => { changeAudioTrack(audioTrack.id); setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                    {audioTrack.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <ChevronRight size={14} />
-        </button>
+        )}
       </div>
     );
+  };
+
+  const handleSettingsToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPlayerState(prev => {
+      const newShowSettings = !prev.showSettings;
+      // Reset expanded items when closing
+      if (!newShowSettings) {
+        setExpandedSettingItem(null);
+      }
+      return { ...prev, showSettings: newShowSettings, showControls: true };
+    });
+    lastActivityRef.current = Date.now();
   };
 
   return (
@@ -634,8 +704,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* Top Controls - Settings Icon (Mobile) */}
         <div className="absolute top-0 right-0 p-3 md:hidden">
           <button 
-            onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
+            onClick={handleSettingsToggle}
             className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
+            data-testid="button-settings-mobile"
           >
             <Settings size={20} />
           </button>
@@ -643,7 +714,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all">
+            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all" data-testid="button-play-center">
               <Play size={24} fill="white" className="ml-1" />
             </button>
           </div>
@@ -669,13 +740,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   onMouseEnter={() => setShowVolumeSlider(true)}
                   onMouseLeave={() => setShowVolumeSlider(false)}
                   className="text-white hover:text-blue-300 transition-colors p-2"
+                  data-testid="button-volume"
                 >
                   {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
                 </button>
                 
                 {showVolumeSlider && (
                   <div 
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg p-2 w-8"
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg p-3"
                     onMouseEnter={() => setShowVolumeSlider(true)}
                     onMouseLeave={() => setShowVolumeSlider(false)}
                     onClick={(e) => e.stopPropagation()}
@@ -686,21 +758,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       max="100"
                       value={volume}
                       onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                      className="volume-slider"
-                      style={{ 
-                        writingMode: 'vertical-lr',
-                        direction: 'rtl',
-                        width: '4px',
-                        height: '80px',
-                        cursor: 'pointer'
-                      }}
+                      className="volume-slider-horizontal w-24"
+                      data-testid="slider-volume"
                     />
                   </div>
                 )}
               </div>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className="text-white text-sm whitespace-nowrap">
+                <div className="text-white text-sm whitespace-nowrap" data-testid="text-time">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
@@ -709,6 +775,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Seek backward 10s"
+                data-testid="button-rewind"
               >
                 <Rewind size={20} />
               </button>
@@ -716,6 +783,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-play-pause"
               >
                 {playerState.isPlaying ? <Pause size={24} /> : <Play size={24} />}
               </button>
@@ -724,6 +792,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 onClick={(e) => { e.stopPropagation(); seekForward(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Seek forward 10s"
+                data-testid="button-forward"
               >
                 <FastForward size={20} />
               </button>
@@ -735,6 +804,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   onClick={(e) => { e.stopPropagation(); togglePip(); }} 
                   className="text-white hover:text-blue-300 transition-colors p-2" 
                   title="Picture-in-picture"
+                  data-testid="button-pip"
                 >
                   <PictureInPicture2 size={20} />
                 </button>
@@ -745,35 +815,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   onClick={(e) => { e.stopPropagation(); }} 
                   className="text-white hover:text-blue-300 transition-colors p-2" 
                   title="Captions"
+                  data-testid="button-captions"
                 >
                   <Subtitles size={20} />
                 </button>
               )}
               
-              <Popover open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({ ...prev, showSettings: isOpen }))}>
-                <PopoverTrigger asChild>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
-                    className="text-white hover:text-blue-300 transition-colors p-2" 
-                    title="Settings"
-                  >
-                    <Settings size={20} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent 
-                  className="bg-black/95 backdrop-blur-md border-white/20 text-white w-80 max-h-96 overflow-y-auto" 
-                  onClick={(e) => e.stopPropagation()}
-                  side="top"
-                  align="end"
+              <div className="relative">
+                <button 
+                  onClick={handleSettingsToggle}
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
+                  title="Settings"
+                  data-testid="button-settings"
                 >
-                  <SettingsContent />
-                </PopoverContent>
-              </Popover>
+                  <Settings size={20} />
+                </button>
+                
+                {playerState.showSettings && (
+                  <div 
+                    className="absolute bottom-full right-0 mb-16 bg-black/95 backdrop-blur-md border border-white/20 text-white w-80 max-h-96 overflow-y-auto rounded-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <SettingsContent />
+                  </div>
+                )}
+              </div>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Fullscreen"
+                data-testid="button-fullscreen"
               >
                 {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </button>
@@ -784,12 +856,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-volume-mobile"
               >
                 {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
               </button>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className="text-white text-xs whitespace-nowrap">
+                <div className="text-white text-xs whitespace-nowrap" data-testid="text-time-mobile">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
@@ -797,6 +870,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-rewind-mobile"
               >
                 <Rewind size={18} />
               </button>
@@ -804,6 +878,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-play-pause-mobile"
               >
                 {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
               </button>
@@ -811,6 +886,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); seekForward(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-forward-mobile"
               >
                 <FastForward size={18} />
               </button>
@@ -822,6 +898,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   onClick={(e) => { e.stopPropagation(); togglePip(); }} 
                   className="text-white hover:text-blue-300 transition-colors p-2" 
                   title="Picture-in-picture"
+                  data-testid="button-pip-mobile"
                 >
                   <PictureInPicture2 size={18} />
                 </button>
@@ -830,6 +907,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
+                data-testid="button-fullscreen-mobile"
               >
                 {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
               </button>
@@ -840,15 +918,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* Mobile Settings Overlay */}
         {isMobile && playerState.showSettings && (
           <div 
-            className={`absolute ${
+            className={`fixed ${
               isLandscape 
-                ? 'right-4 top-1/2 -translate-y-1/2 w-80 max-h-[70vh]' 
-                : 'bottom-20 left-1/2 -translate-x-1/2 w-[90vw] max-w-md max-h-[60vh]'
-            } bg-black/95 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden z-50`}
+                ? 'inset-y-0 right-0 w-80 max-w-[50vw]' 
+                : 'inset-x-0 bottom-0 max-h-[60vh]'
+            } bg-black/95 backdrop-blur-md border-t border-white/20 overflow-hidden z-50 ${
+              isLandscape ? 'rounded-l-xl border-l' : 'rounded-t-xl'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-full h-1 bg-white/30 rounded-full mx-auto mt-2 mb-3" style={{ width: '40px' }}></div>
-            <div className="overflow-y-auto max-h-full px-2 pb-4">
+            <div className={`w-10 h-1 bg-white/30 rounded-full mx-auto mt-3 mb-2 ${isLandscape ? 'hidden' : 'block'}`}></div>
+            <div className="overflow-y-auto h-full pb-4 px-2">
               <SettingsContent />
             </div>
           </div>
