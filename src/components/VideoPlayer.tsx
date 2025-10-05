@@ -1,8 +1,8 @@
-// /src/components/VideoPlayer.tsx - Now with Accordion Menu
+// /src/components/VideoPlayer.tsx - Responsive Settings Overlay
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles } from 'lucide-react';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, SkipBack, SkipForward, ChevronRight, Volume1 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -50,6 +50,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
+
+  const isMobile = useIsMobile();
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [volume, setVolume] = useState(100);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -379,7 +384,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current; if (!video) return; if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) { if (video.paused) shakaPlayerRef.current.play().catch(console.error); else shakaPlayerRef.current.pause(); } else { if (video.paused) video.play().catch(console.error); else video.pause(); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
   }, []);
   const toggleMute = useCallback(() => {
-    const video = videoRef.current; if (video) { video.muted = !video.muted; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now(); }
+    const video = videoRef.current; 
+    if (video) { 
+      video.muted = !video.muted; 
+      setPlayerState(prev => ({ ...prev, showControls: true })); 
+      lastActivityRef.current = Date.now(); 
+    }
+  }, []);
+
+  const handleVolumeChange = useCallback((newVolume: number) => {
+    const video = videoRef.current;
+    if (video) {
+      video.volume = newVolume / 100;
+      video.muted = newVolume === 0;
+      setVolume(newVolume);
+      setPlayerState(prev => ({ ...prev, isMuted: newVolume === 0, showControls: true }));
+      lastActivityRef.current = Date.now();
+    }
+  }, []);
+
+  const seekBackward = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = Math.max(0, video.currentTime - 10);
+      setPlayerState(prev => ({ ...prev, showControls: true }));
+      lastActivityRef.current = Date.now();
+    }
+  }, []);
+
+  const seekForward = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = Math.min(video.duration, video.currentTime + 10);
+      setPlayerState(prev => ({ ...prev, showControls: true }));
+      lastActivityRef.current = Date.now();
+    }
   }, []);
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
@@ -426,8 +465,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!playerState.showSettings) resetControlsTimer();
   }, [resetControlsTimer, playerState.showSettings]);
   useEffect(() => {
-    document.addEventListener('mousemove', handleDragMove); document.addEventListener('mouseup', handleDragEnd); return () => { document.removeEventListener('mousemove', handleDragMove); document.removeEventListener('mouseup', handleDragEnd); };
+    document.addEventListener('mousemove', handleDragMove); 
+    document.addEventListener('mouseup', handleDragEnd); 
+    return () => { 
+      document.removeEventListener('mousemove', handleDragMove); 
+      document.removeEventListener('mouseup', handleDragEnd); 
+    };
   }, [handleDragMove, handleDragEnd]);
+
+  // Detect orientation changes
+  useEffect(() => {
+    const checkOrientation = () => {
+      const isLandscapeOrientation = window.innerWidth > window.innerHeight;
+      setIsLandscape(isLandscapeOrientation);
+    };
+    
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
 
   if (playerState.error && !playerState.isLoading) {
     return (
@@ -446,18 +507,120 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
+  const SettingsContent = () => (
+    <div className="space-y-1">
+      {playerState.availableQualities.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-3 py-2 text-sm text-gray-300">
+            <div className="flex items-center gap-2">
+              <Settings size={16} />
+              <span>Quality</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs">
+                {playerState.currentQuality === -1 ? 'Auto' : 
+                  playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height + 'p'}
+              </span>
+              <ChevronRight size={14} />
+            </div>
+          </div>
+          <div className="space-y-1 pl-8">
+            <button onClick={() => changeQuality(-1)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === -1 ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+              Auto (720p)
+            </button>
+            {playerState.availableQualities.map((quality) => (
+              <button key={quality.id} onClick={() => changeQuality(quality.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === quality.id ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                {quality.height}p
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {playerState.availableSubtitles.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-3 py-2 text-sm text-gray-300">
+            <div className="flex items-center gap-2">
+              <Subtitles size={16} />
+              <span>Subtitles</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs">{playerState.currentSubtitle === '' ? 'Off' : 'On'}</span>
+              <ChevronRight size={14} />
+            </div>
+          </div>
+          <div className="space-y-1 pl-8">
+            <button onClick={() => changeSubtitle('')} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === '' ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+              Off
+            </button>
+            {playerState.availableSubtitles.map((subtitle) => (
+              <button key={subtitle.id} onClick={() => changeSubtitle(subtitle.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === subtitle.id ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                {subtitle.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      <div className="space-y-1">
+        <div className="flex items-center justify-between px-3 py-2 text-sm text-gray-300">
+          <div className="flex items-center gap-2">
+            <Volume2 size={16} />
+            <span>Audio</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs">Default</span>
+            <ChevronRight size={14} />
+          </div>
+        </div>
+      </div>
+      
+      <div className="space-y-1">
+        <div className="flex items-center justify-between px-3 py-2 text-sm text-gray-300">
+          <div className="flex items-center gap-2">
+            <Settings size={16} />
+            <span>Playback speed</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs">Normal</span>
+            <ChevronRight size={14} />
+          </div>
+        </div>
+        <div className="space-y-1 pl-8">
+          {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+            <button key={speed} onClick={() => { if (videoRef.current) videoRef.current.playbackRate = speed; }} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${videoRef.current?.playbackRate === speed ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+              {speed === 1 ? 'Normal' : `${speed}x`}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
-      {playerState.isLoading && (<div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center"><div className="text-center text-white"><Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" /><div className="text-sm">Loading stream...</div></div></div>)}
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-          {playerState.availableSubtitles.length > 0 && (<button onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }} className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all" title="Subtitles"><Subtitles size={18} /></button>)}
-          {(playerState.availableQualities.length > 0 || playerState.availableSubtitles.length > 0) && (<button onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true })); }} className="p-2 rounded-lg bg-black/60 backdrop-blur-sm text-white hover:bg-black/80 transition-all" title="Settings"><Settings size={18} /></button>)}
+      
+      {playerState.isLoading && (
+        <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
+          <div className="text-center text-white">
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <div className="text-sm">Loading stream...</div>
+          </div>
         </div>
-        {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (<div className="absolute inset-0 flex items-center justify-center"><button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all"><Play size={24} fill="white" className="ml-1" /></button></div>)}
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <div className="mb-4">
+      )}
+      
+      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all">
+              <Play size={24} fill="white" className="ml-1" />
+            </button>
+          </div>
+        )}
+        
+        <div className="absolute bottom-0 left-0 right-0 p-3 md:p-4">
+          <div className="mb-3 md:mb-4">
             <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick}>
               <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white bg-opacity-30 rounded-full">
                 <div className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full" style={{ width: isFinite(playerState.duration) && playerState.duration > 0 ? `${(playerState.buffered / playerState.duration) * 100}%` : '0%' }}/>
@@ -466,71 +629,194 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="text-white hover:text-blue-300 transition-colors p-2">{playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}</button>
-            <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="text-white hover:text-blue-300 transition-colors p-2">{playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}</button>
-            {isFinite(playerState.duration) && playerState.duration > 0 && (<div className="text-white text-sm">{formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}</div>)}
-            <div className="flex-1"></div>
-            {document.pictureInPictureEnabled && (<button onClick={(e) => { e.stopPropagation(); togglePip(); }} className="text-white hover:text-blue-300 transition-colors p-2" title="Picture-in-picture"><PictureInPicture2 size={18} /></button>)}
-            <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="text-white hover:text-blue-300 transition-colors p-2" title="Fullscreen">{playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}</button>
+          
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* Desktop/Tablet Layout */}
+            <div className="hidden md:flex items-center gap-3 flex-1">
+              <div className="relative">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
+                  onMouseEnter={() => setShowVolumeSlider(true)}
+                  onMouseLeave={() => setShowVolumeSlider(false)}
+                  className="text-white hover:text-blue-300 transition-colors p-2"
+                >
+                  {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
+                </button>
+                
+                {showVolumeSlider && (
+                  <div 
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg p-2 w-8"
+                    onMouseEnter={() => setShowVolumeSlider(true)}
+                    onMouseLeave={() => setShowVolumeSlider(false)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={volume}
+                      onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                      className="volume-slider"
+                      style={{ 
+                        writingMode: 'vertical-lr',
+                        direction: 'rtl',
+                        width: '4px',
+                        height: '80px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {isFinite(playerState.duration) && playerState.duration > 0 && (
+                <div className="text-white text-sm whitespace-nowrap">
+                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                </div>
+              )}
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2" 
+                title="Seek backward 10s"
+              >
+                <SkipBack size={20} />
+              </button>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                {playerState.isPlaying ? <Pause size={24} /> : <Play size={24} />}
+              </button>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); seekForward(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2" 
+                title="Seek forward 10s"
+              >
+                <SkipForward size={20} />
+              </button>
+              
+              <div className="flex-1"></div>
+              
+              {document.pictureInPictureEnabled && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
+                  title="Picture-in-picture"
+                >
+                  <PictureInPicture2 size={20} />
+                </button>
+              )}
+              
+              {playerState.availableSubtitles.length > 0 && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); }} 
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
+                  title="Captions"
+                >
+                  <Subtitles size={20} />
+                </button>
+              )}
+              
+              <Popover open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({ ...prev, showSettings: isOpen }))}>
+                <PopoverTrigger asChild>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
+                    className="text-white hover:text-blue-300 transition-colors p-2" 
+                    title="Settings"
+                  >
+                    <Settings size={20} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent 
+                  className="bg-black/95 backdrop-blur-md border-white/20 text-white w-80 max-h-96 overflow-y-auto" 
+                  onClick={(e) => e.stopPropagation()}
+                  side="top"
+                  align="end"
+                >
+                  <SettingsContent />
+                </PopoverContent>
+              </Popover>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2" 
+                title="Fullscreen"
+              >
+                {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+              </button>
+            </div>
+            
+            {/* Mobile Layout */}
+            <div className="flex md:hidden items-center gap-2 flex-1">
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+              
+              {isFinite(playerState.duration) && playerState.duration > 0 && (
+                <div className="text-white text-xs whitespace-nowrap">
+                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                </div>
+              )}
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                <SkipBack size={18} />
+              </button>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
+              </button>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); seekForward(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                <SkipForward size={18} />
+              </button>
+              
+              <div className="flex-1"></div>
+              
+              <div className="relative">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
+                  className="text-white hover:text-blue-300 transition-colors p-2"
+                >
+                  <Settings size={18} />
+                </button>
+                
+                {playerState.showSettings && (
+                  <div 
+                    className={`absolute ${isLandscape ? 'bottom-0 right-12 w-80 max-h-64' : 'bottom-12 right-0 w-72 max-h-80'} bg-black/95 backdrop-blur-md rounded-lg border border-white/20 overflow-y-auto z-50`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="p-4">
+                      <SettingsContent />
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
+                className="text-white hover:text-blue-300 transition-colors p-2"
+              >
+                {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-      <Drawer open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({...prev, showSettings: isOpen }))}>
-        <DrawerContent className="bg-black/90 border-t border-white/20 text-white outline-none" onClick={(e) => e.stopPropagation()}>
-          <DrawerHeader>
-            <DrawerTitle className="text-center text-white">Settings</DrawerTitle>
-          </DrawerHeader>
-          <div className="p-4 overflow-y-auto" style={{ maxHeight: '50vh' }}>
-            <Accordion type="single" collapsible className="w-full">
-              {playerState.availableQualities.length > 0 && (
-                <AccordionItem value="quality">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Quality</AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-1 pt-2">
-                      <button onClick={() => changeQuality(-1)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === -1 ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>Auto</button>
-                      {playerState.availableQualities.map((quality) => (
-                        <button key={quality.id} onClick={() => changeQuality(quality.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentQuality === quality.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>{quality.height}p ({quality.bitrate} kbps)</button>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              )}
-              {playerState.availableSubtitles.length > 0 && (
-                <AccordionItem value="subtitles">
-                  <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Subtitles</AccordionTrigger>
-                  <AccordionContent>
-                    <div className="space-y-1 pt-2">
-                      <button onClick={() => changeSubtitle('')} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === '' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>Off</button>
-                      {playerState.availableSubtitles.map((subtitle) => (
-                        <button key={subtitle.id} onClick={() => changeSubtitle(subtitle.id)} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${playerState.currentSubtitle === subtitle.id ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>{subtitle.label}</button>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              )}
-              <AccordionItem value="playback-speed">
-                <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Playback Speed</AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-1 pt-2">
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
-                      <button key={speed} onClick={() => { if (videoRef.current) videoRef.current.playbackRate = speed; setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true })); }} className={`w-full text-left px-3 py-2 text-sm rounded transition-colors ${videoRef.current?.playbackRate === speed ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-white/10'}`}>{speed === 1 ? 'Normal' : `${speed}x`}</button>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="audio">
-                <AccordionTrigger className="text-white text-base font-medium hover:no-underline">Audio</AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-1 pt-2">
-                    <button className="w-full text-left px-3 py-2 text-sm rounded bg-blue-600 text-white">Default</button>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-        </DrawerContent>
-      </Drawer>
     </div>
   );
 };
