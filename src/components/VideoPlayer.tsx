@@ -799,342 +799,222 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       </div>
 
-      {/* Settings Overlay - Mobile: YouTube-style, Desktop: Popover */}
+      {/* YouTube-style Settings Overlay */}
       {playerState.showSettings && (
         <>
-          {isMobile ? (
-            <>
-              {/* Mobile: YouTube-style Settings Overlay */}
-              {/* Backdrop */}
-              <div 
-                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-                style={{ backgroundColor: 'rgba(15, 15, 15, 0.92)' }}
-                onClick={handleSettingsToggle}
-              />
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            style={{ backgroundColor: 'rgba(15, 15, 15, 0.92)' }}
+            onClick={handleSettingsToggle}
+          />
+          
+          {/* Settings Panel */}
+          <div 
+            className={`fixed z-50 bg-[#212121] ${
+              isLandscape && isMobile
+                ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[20px] w-[400px] max-w-[90vw]'
+                : 'bottom-0 left-0 right-0 rounded-t-[18px]'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxHeight: isLandscape && isMobile ? '80vh' : '60vh'
+            }}
+          >
+            {/* Handle bar for portrait mode */}
+            {!isLandscape && isMobile && (
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-10 h-1 bg-white/30 rounded-full" />
+              </div>
+            )}
+            
+            {/* Settings List */}
+            <div className="overflow-y-auto pb-4" style={{ maxHeight: isLandscape && isMobile ? '70vh' : '50vh' }}>
+              {/* Quality */}
+              {!expandedSettingItem && playerState.availableQualities.length > 0 && (
+                <button
+                  onClick={() => handleSettingClick('quality')}
+                  className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
+                  style={{ minHeight: '56px' }}
+                >
+                  <div className="flex items-center gap-4">
+                    <Settings size={20} />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Quality</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
+                      {getCurrentQualityLabel()}
+                    </span>
+                    <ChevronRight size={16} className="text-white/70" />
+                  </div>
+                </button>
+              )}
               
-              {/* Settings Panel */}
-              <div 
-                className={`fixed z-50 bg-[#212121] ${
-                  isLandscape
-                    ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[20px] w-[400px] max-w-[90vw]'
-                    : 'bottom-0 left-0 right-0 rounded-t-[18px]'
-                }`}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  maxHeight: isLandscape ? '80vh' : '60vh'
-                }}
-              >
-                {/* Handle bar for portrait mode */}
-                {!isLandscape && (
-                  <div className="flex justify-center pt-3 pb-2">
-                    <div className="w-10 h-1 bg-white/30 rounded-full" />
-                  </div>
-                )}
-                
-                {/* Settings List */}
-                <div className="overflow-y-auto pb-4" style={{ maxHeight: isLandscape ? '70vh' : '50vh' }}>
-                  {/* Quality */}
-                  {!expandedSettingItem && playerState.availableQualities.length > 0 && (
+              {expandedSettingItem === 'quality' && (
+                <div className="px-4">
+                  <button
+                    onClick={() => handleSettingClick('quality')}
+                    className="w-full flex items-center gap-4 px-4 py-4 text-white"
+                  >
+                    <ChevronRight size={20} className="rotate-180" />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Quality</span>
+                  </button>
+                  <button
+                    onClick={() => changeQuality(-1)}
+                    className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                      playerState.currentQuality === -1 ? 'bg-white/20' : 'hover:bg-white/10'
+                    }`}
+                    style={{ fontSize: '15px', fontWeight: 400 }}
+                  >
+                    Auto
+                  </button>
+                  {playerState.availableQualities.map((quality) => (
                     <button
-                      onClick={() => handleSettingClick('quality')}
-                      className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
-                      style={{ minHeight: '56px' }}
+                      key={quality.id}
+                      onClick={() => changeQuality(quality.id)}
+                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        playerState.currentQuality === quality.id ? 'bg-white/20' : 'hover:bg-white/10'
+                      }`}
+                      style={{ fontSize: '15px', fontWeight: 400 }}
                     >
-                      <div className="flex items-center gap-4">
-                        <Settings size={20} />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Quality</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-                          {getCurrentQualityLabel()}
-                        </span>
-                        <ChevronRight size={16} className="text-white/70" />
-                      </div>
+                      {quality.height}p
                     </button>
-                  )}
-                  
-                  {expandedSettingItem === 'quality' && (
-                    <div className="px-4">
-                      <button
-                        onClick={() => handleSettingClick('quality')}
-                        className="w-full flex items-center gap-4 px-4 py-4 text-white"
-                      >
-                        <ChevronRight size={20} className="rotate-180" />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Quality</span>
-                      </button>
-                      <button
-                        onClick={() => changeQuality(-1)}
-                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                          playerState.currentQuality === -1 ? 'bg-white/20' : 'hover:bg-white/10'
-                        }`}
-                        style={{ fontSize: '15px', fontWeight: 400 }}
-                      >
-                        Auto
-                      </button>
-                      {playerState.availableQualities.map((quality) => (
-                        <button
-                          key={quality.id}
-                          onClick={() => changeQuality(quality.id)}
-                          className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                            playerState.currentQuality === quality.id ? 'bg-white/20' : 'hover:bg-white/10'
-                          }`}
-                          style={{ fontSize: '15px', fontWeight: 400 }}
-                        >
-                          {quality.height}p
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Playback Speed */}
-                  {!expandedSettingItem && (
-                    <button
-                      onClick={() => handleSettingClick('speed')}
-                      className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
-                      style={{ minHeight: '56px' }}
-                    >
-                      <div className="flex items-center gap-4">
-                        <Play size={20} />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Playback speed</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-                          {getCurrentSpeedLabel()}
-                        </span>
-                        <ChevronRight size={16} className="text-white/70" />
-                      </div>
-                    </button>
-                  )}
-                  
-                  {expandedSettingItem === 'speed' && (
-                    <div className="px-4">
-                      <button
-                        onClick={() => handleSettingClick('speed')}
-                        className="w-full flex items-center gap-4 px-4 py-4 text-white"
-                      >
-                        <ChevronRight size={20} className="rotate-180" />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Playback speed</span>
-                      </button>
-                      {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => (
-                        <button
-                          key={speed}
-                          onClick={() => changePlaybackSpeed(speed)}
-                          className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                            videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
-                          }`}
-                          style={{ fontSize: '15px', fontWeight: 400 }}
-                        >
-                          {speed === 1 ? 'Normal' : `${speed}`}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Captions */}
-                  {!expandedSettingItem && playerState.availableSubtitles.length > 0 && (
-                    <button
-                      onClick={() => handleSettingClick('captions')}
-                      className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
-                      style={{ minHeight: '56px' }}
-                    >
-                      <div className="flex items-center gap-4">
-                        <Subtitles size={20} />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Captions</span>
-                      </div>
-                      <ChevronRight size={16} className="text-white/70" />
-                    </button>
-                  )}
-                  
-                  {expandedSettingItem === 'captions' && (
-                    <div className="px-4">
-                      <button
-                        onClick={() => handleSettingClick('captions')}
-                        className="w-full flex items-center gap-4 px-4 py-4 text-white"
-                      >
-                        <ChevronRight size={20} className="rotate-180" />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Captions</span>
-                      </button>
-                      <button
-                        onClick={() => changeSubtitle('')}
-                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                          playerState.currentSubtitle === '' ? 'bg-white/20' : 'hover:bg-white/10'
-                        }`}
-                        style={{ fontSize: '15px', fontWeight: 400 }}
-                      >
-                        Off
-                      </button>
-                      {playerState.availableSubtitles.map((subtitle) => (
-                        <button
-                          key={subtitle.id}
-                          onClick={() => changeSubtitle(subtitle.id)}
-                          className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                            playerState.currentSubtitle === subtitle.id ? 'bg-white/20' : 'hover:bg-white/10'
-                          }`}
-                          style={{ fontSize: '15px', fontWeight: 400 }}
-                        >
-                          {subtitle.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Audio */}
-                  {!expandedSettingItem && playerState.availableAudioTracks.length > 0 && (
-                    <button
-                      onClick={() => handleSettingClick('audio')}
-                      className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
-                      style={{ minHeight: '56px' }}
-                    >
-                      <div className="flex items-center gap-4">
-                        <Music size={20} />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Audio</span>
-                      </div>
-                      <ChevronRight size={16} className="text-white/70" />
-                    </button>
-                  )}
-                  
-                  {expandedSettingItem === 'audio' && (
-                    <div className="px-4">
-                      <button
-                        onClick={() => handleSettingClick('audio')}
-                        className="w-full flex items-center gap-4 px-4 py-4 text-white"
-                      >
-                        <ChevronRight size={20} className="rotate-180" />
-                        <span style={{ fontSize: '15px', fontWeight: 500 }}>Audio</span>
-                      </button>
-                      {playerState.availableAudioTracks.map((audioTrack) => (
-                        <button
-                          key={audioTrack.id}
-                          onClick={() => changeAudioTrack(audioTrack.id)}
-                          className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                            playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
-                          }`}
-                          style={{ fontSize: '15px', fontWeight: 400 }}
-                        >
-                          {audioTrack.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  ))}
                 </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Desktop: Popover Settings - Positioned above seekbar */}
-              <div 
-                className="absolute right-20 bg-black/95 backdrop-blur-sm rounded-lg z-50 min-w-[280px] shadow-2xl"
-                style={{ bottom: '100px' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="py-2">
-                  {/* Quality */}
-                  {playerState.availableQualities.length > 0 && (
-                    <div className="px-4 py-3 hover:bg-white/10 transition-colors cursor-pointer group">
-                      <div className="flex items-center justify-between text-white">
-                        <div className="flex items-center gap-3">
-                          <Settings size={18} className="text-white/80" />
-                          <span className="text-sm font-medium">Quality</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <select
-                            value={playerState.currentQuality}
-                            onChange={(e) => changeQuality(Number(e.target.value))}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-transparent text-white text-sm border border-white/20 rounded px-2 py-1 outline-none focus:border-white/40"
-                          >
-                            <option value={-1} className="bg-black">Auto</option>
-                            {playerState.availableQualities.map((quality) => (
-                              <option key={quality.id} value={quality.id} className="bg-black">
-                                {quality.height}p
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Playback Speed */}
-                  <div className="px-4 py-3 hover:bg-white/10 transition-colors cursor-pointer group">
-                    <div className="flex items-center justify-between text-white">
-                      <div className="flex items-center gap-3">
-                        <Play size={18} className="text-white/80" />
-                        <span className="text-sm font-medium">Playback speed</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <select
-                          value={videoRef.current?.playbackRate || 1}
-                          onChange={(e) => changePlaybackSpeed(Number(e.target.value))}
-                          onClick={(e) => e.stopPropagation()}
-                          className="bg-transparent text-white text-sm border border-white/20 rounded px-2 py-1 outline-none focus:border-white/40"
-                        >
-                          {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => (
-                            <option key={speed} value={speed} className="bg-black">
-                              {speed === 1 ? 'Normal' : `${speed}`}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
+              )}
+
+              {/* Playback Speed */}
+              {!expandedSettingItem && (
+                <button
+                  onClick={() => handleSettingClick('speed')}
+                  className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
+                  style={{ minHeight: '56px' }}
+                >
+                  <div className="flex items-center gap-4">
+                    <Play size={20} />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Playback speed</span>
                   </div>
-
-                  {/* Captions */}
-                  {playerState.availableSubtitles.length > 0 && (
-                    <div className="px-4 py-3 hover:bg-white/10 transition-colors cursor-pointer group">
-                      <div className="flex items-center justify-between text-white">
-                        <div className="flex items-center gap-3">
-                          <Subtitles size={18} className="text-white/80" />
-                          <span className="text-sm font-medium">Captions</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <select
-                            value={playerState.currentSubtitle}
-                            onChange={(e) => changeSubtitle(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-transparent text-white text-sm border border-white/20 rounded px-2 py-1 outline-none focus:border-white/40"
-                          >
-                            <option value="" className="bg-black">Off</option>
-                            {playerState.availableSubtitles.map((subtitle) => (
-                              <option key={subtitle.id} value={subtitle.id} className="bg-black">
-                                {subtitle.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Audio Track */}
-                  {playerState.availableAudioTracks.length > 0 && (
-                    <div className="px-4 py-3 hover:bg-white/10 transition-colors cursor-pointer group">
-                      <div className="flex items-center justify-between text-white">
-                        <div className="flex items-center gap-3">
-                          <Music size={18} className="text-white/80" />
-                          <span className="text-sm font-medium">Audio</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <select
-                            value={playerState.currentAudioTrack}
-                            onChange={(e) => changeAudioTrack(Number(e.target.value))}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-transparent text-white text-sm border border-white/20 rounded px-2 py-1 outline-none focus:border-white/40"
-                          >
-                            {playerState.availableAudioTracks.map((audioTrack) => (
-                              <option key={audioTrack.id} value={audioTrack.id} className="bg-black">
-                                {audioTrack.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
+                      {getCurrentSpeedLabel()}
+                    </span>
+                    <ChevronRight size={16} className="text-white/70" />
+                  </div>
+                </button>
+              )}
+              
+              {expandedSettingItem === 'speed' && (
+                <div className="px-4">
+                  <button
+                    onClick={() => handleSettingClick('speed')}
+                    className="w-full flex items-center gap-4 px-4 py-4 text-white"
+                  >
+                    <ChevronRight size={20} className="rotate-180" />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Playback speed</span>
+                  </button>
+                  {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => (
+                    <button
+                      key={speed}
+                      onClick={() => changePlaybackSpeed(speed)}
+                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
+                      }`}
+                      style={{ fontSize: '15px', fontWeight: 400 }}
+                    >
+                      {speed === 1 ? 'Normal' : `${speed}`}
+                    </button>
+                  ))}
                 </div>
-              </div>
-            </>
-          )}
+              )}
+
+              {/* Captions */}
+              {!expandedSettingItem && playerState.availableSubtitles.length > 0 && (
+                <button
+                  onClick={() => handleSettingClick('captions')}
+                  className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
+                  style={{ minHeight: '56px' }}
+                >
+                  <div className="flex items-center gap-4">
+                    <Subtitles size={20} />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Captions</span>
+                  </div>
+                  <ChevronRight size={16} className="text-white/70" />
+                </button>
+              )}
+              
+              {expandedSettingItem === 'captions' && (
+                <div className="px-4">
+                  <button
+                    onClick={() => handleSettingClick('captions')}
+                    className="w-full flex items-center gap-4 px-4 py-4 text-white"
+                  >
+                    <ChevronRight size={20} className="rotate-180" />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Captions</span>
+                  </button>
+                  <button
+                    onClick={() => changeSubtitle('')}
+                    className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                      playerState.currentSubtitle === '' ? 'bg-white/20' : 'hover:bg-white/10'
+                    }`}
+                    style={{ fontSize: '15px', fontWeight: 400 }}
+                  >
+                    Off
+                  </button>
+                  {playerState.availableSubtitles.map((subtitle) => (
+                    <button
+                      key={subtitle.id}
+                      onClick={() => changeSubtitle(subtitle.id)}
+                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        playerState.currentSubtitle === subtitle.id ? 'bg-white/20' : 'hover:bg-white/10'
+                      }`}
+                      style={{ fontSize: '15px', fontWeight: 400 }}
+                    >
+                      {subtitle.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Audio */}
+              {!expandedSettingItem && playerState.availableAudioTracks.length > 0 && (
+                <button
+                  onClick={() => handleSettingClick('audio')}
+                  className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
+                  style={{ minHeight: '56px' }}
+                >
+                  <div className="flex items-center gap-4">
+                    <Music size={20} />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Audio</span>
+                  </div>
+                  <ChevronRight size={16} className="text-white/70" />
+                </button>
+              )}
+              
+              {expandedSettingItem === 'audio' && (
+                <div className="px-4">
+                  <button
+                    onClick={() => handleSettingClick('audio')}
+                    className="w-full flex items-center gap-4 px-4 py-4 text-white"
+                  >
+                    <ChevronRight size={20} className="rotate-180" />
+                    <span style={{ fontSize: '15px', fontWeight: 500 }}>Audio</span>
+                  </button>
+                  {playerState.availableAudioTracks.map((audioTrack) => (
+                    <button
+                      key={audioTrack.id}
+                      onClick={() => changeAudioTrack(audioTrack.id)}
+                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
+                      }`}
+                      style={{ fontSize: '15px', fontWeight: 400 }}
+                    >
+                      {audioTrack.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
