@@ -1,11 +1,8 @@
-// /src/components/VideoPlayer.tsx - Fixed Version
+// /src/components/VideoPlayer.tsx - Responsive Settings Overlay
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, AudioWaveform } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Lock } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Button } from './ui/button';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -25,12 +22,6 @@ interface SubtitleTrack {
   id: string;
   label: string;
   language: string;
-}
-
-interface AudioTrack {
-  id: number;
-  name: string;
-  lang: string;
 }
 
 const PLAYER_LOAD_TIMEOUT = 15000;
@@ -64,6 +55,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLandscape, setIsLandscape] = useState(false);
   const [volume, setVolume] = useState(100);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [expandedSettingItem, setExpandedSettingItem] = useState<string | null>(null);
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -80,8 +72,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     availableQualities: [] as QualityLevel[],
     availableSubtitles: [] as SubtitleTrack[],
     currentSubtitle: '',
-    availableAudioTracks: [] as AudioTrack[],
-    currentAudioTrack: -1,
     isSeeking: false,
     isPipActive: false,
   });
@@ -106,7 +96,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   
     const urlLower = cleanUrl.toLowerCase();
-  
     
     if (urlLower.includes('.mpd') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
       return { type: 'dash', cleanUrl, drmInfo };
@@ -192,11 +181,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (!isMountedRef.current) return;
           if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
           const levels: QualityLevel[] = hls.levels.map((level: any, index: number) => ({ height: level.height || 0, bitrate: Math.round(level.bitrate / 1000), id: index }));
-          const audioTracks: AudioTrack[] = hls.audioTracks.map((track: any) => ({ id: track.id, name: track.name, lang: track.lang || 'unknown' }));
           video.muted = muted;
           if (autoPlay) video.play().catch(console.warn);
-  
-          setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: levels, availableAudioTracks: audioTracks, currentQuality: hls.currentLevel, currentAudioTrack: hls.audioTrack, isMuted: video.muted, isPlaying: true, showControls: true }));
+          setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: levels, currentQuality: hls.currentLevel, isMuted: video.muted, isPlaying: true, showControls: true }));
           startControlsTimer();
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -257,10 +244,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const qualities: QualityLevel[] = tracks.map(track => ({ height: track.height || 0, bitrate: Math.round(track.bandwidth / 1000), id: track.id }));
       const textTracks = player.getTextTracks();
       const subtitles: SubtitleTrack[] = textTracks.map(track => ({ id: track.id.toString(), label: track.label || track.language || 'Unknown', language: track.language || 'unknown' }));
-      const audioTracks: AudioTrack[] = player.getAudioLanguagesAndRoles().map((audio: any, index: number) => ({ id: index, name: audio.language, lang: audio.language }));
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: qualities, availableSubtitles: subtitles, availableAudioTracks: audioTracks, currentQuality: -1, isMuted: video.muted, isPlaying: true, showControls: true }));
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: qualities, availableSubtitles: subtitles, currentQuality: -1, isMuted: video.muted, isPlaying: true, showControls: true }));
       startControlsTimer();
       return () => player.removeEventListener('error', onError);
     } catch (error) { throw error; }
@@ -332,25 +318,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
-  const changeAudioTrack = useCallback((trackId: number) => {
-    if (playerTypeRef.current === 'hls' && hlsRef.current) {
-        hlsRef.current.audioTrack = trackId;
-    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
-        const audioTracks = shakaPlayerRef.current.getAudioLanguagesAndRoles();
-        if (audioTracks[trackId]) {
-            shakaPlayerRef.current.selectAudioLanguage(audioTracks[trackId].language);
-        }
-    }
-    setPlayerState(prev => ({ ...prev, currentAudioTrack: trackId, showControls: true }));
-    lastActivityRef.current = Date.now();
-  }, []);
-
   const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
-       if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
+      if (isMountedRef.current && playerState.isPlaying && !playerState.showSettings) {
         setPlayerState(prev => ({ ...prev, showControls: false }));
       }
     }, CONTROLS_HIDE_DELAY);
@@ -371,7 +344,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isMountedRef.current = true;
     initializePlayer();
     return () => {
-       isMountedRef.current = false;
+      isMountedRef.current = false;
       destroyPlayer();
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
@@ -418,7 +391,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setPlayerState(prev => ({ ...prev, showControls: true })); 
       lastActivityRef.current = Date.now(); 
     }
-   }, []);
+  }, []);
 
   const handleVolumeChange = useCallback((newVolume: number) => {
     const video = videoRef.current;
@@ -455,6 +428,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
+        // Exit landscape lock when exiting fullscreen
         if (screen.orientation && 'unlock' in screen.orientation) {
           try {
             (screen.orientation as any).unlock();
@@ -464,6 +438,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       } else {
         await container.requestFullscreen();
+        // Try to lock to landscape when entering fullscreen
         if (screen.orientation && 'lock' in screen.orientation) {
           try {
             await (screen.orientation as any).lock('landscape').catch(() => {
@@ -533,131 +508,114 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
-  // Settings UI Components
-  const SettingsMenu = ({ onSelect }: { onSelect: () => void }) => (
-      <div className="flex flex-col gap-1 p-2">
-          {playerState.availableQualities.length > 1 && (
-              <Button variant="ghost" className="w-full justify-start" onClick={() => { onSelect(); setExpandedSettingItem('quality'); }}>
-                  <Settings size={18} className="mr-2" /> Quality
-              </Button>
-          )}
-          <Button variant="ghost" className="w-full justify-start" onClick={() => { onSelect(); setExpandedSettingItem('speed'); }}>
-              <Play size={18} className="mr-2" /> Playback Speed
-          </Button>
-          {playerState.availableSubtitles.length > 0 && (
-              <Button variant="ghost" className="w-full justify-start" onClick={() => { onSelect(); setExpandedSettingItem('captions'); }}>
-                  <Subtitles size={18} className="mr-2" /> Captions
-              </Button>
-          )}
-          {playerState.availableAudioTracks.length > 1 && (
-                <Button variant="ghost" className="w-full justify-start" onClick={() => { onSelect(); setExpandedSettingItem('audio'); }}>
-                    <AudioWaveform size={18} className="mr-2" /> Audio
-                </Button>
-            )}
-      </div>
-  );
-
-  const [expandedSettingItem, setExpandedSettingItem] = useState<string | null>(null);
-
-  const SettingsSubMenu = ({ item, onBack }: { item: string | null, onBack: () => void }) => {
-    let title = "";
-    let content = null;
-
-    switch (item) {
-        case 'quality':
-            title = "Quality";
-            content = (
-                <>
-                    <Button variant={playerState.currentQuality === -1 ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { changeQuality(-1); onBack(); }}>
-                        Auto
-                    </Button>
-                    {playerState.availableQualities.map(q => (
-                        <Button key={q.id} variant={playerState.currentQuality === q.id ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { changeQuality(q.id); onBack(); }}>
-                            {q.height}p
-                        </Button>
-                    ))}
-                </>
-            );
-            break;
-        case 'speed':
-            title = "Playback Speed";
-            content = [0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
-                <Button key={speed} variant={videoRef.current?.playbackRate === speed ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { if(videoRef.current) videoRef.current.playbackRate = speed; onBack(); }}>
-                    {speed === 1 ? 'Normal' : `${speed}x`}
-                </Button>
-            ));
-            break;
-        case 'captions':
-            title = "Captions";
-            content = (
-                <>
-                    <Button variant={playerState.currentSubtitle === '' ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { changeSubtitle(''); onBack(); }}>
-                        Off
-                    </Button>
-                    {playerState.availableSubtitles.map(sub => (
-                        <Button key={sub.id} variant={playerState.currentSubtitle === sub.id ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { changeSubtitle(sub.id); onBack(); }}>
-                            {sub.label}
-                        </Button>
-                    ))}
-                </>
-            );
-            break;
-        case 'audio':
-            title = "Audio Track";
-            content = playerState.availableAudioTracks.map(track => (
-                <Button key={track.id} variant={playerState.currentAudioTrack === track.id ? "secondary" : "ghost"} className="w-full justify-start" onClick={() => { changeAudioTrack(track.id); onBack(); }}>
-                    {track.name || track.lang || `Track ${track.id}`}
-                </Button>
-            ));
-            break;
-    }
+  const SettingsContent = () => {
+    const toggleSettingItem = (item: string) => {
+      setExpandedSettingItem(expandedSettingItem === item ? null : item);
+    };
 
     return (
-        <div className="p-2">
-            <Button variant="ghost" className="w-full justify-start mb-2" onClick={onBack}>
-                <ArrowLeft size={18} className="mr-2" /> {title}
-            </Button>
-            <div className="flex flex-col gap-1">
-                {content}
-            </div>
-        </div>
+      <div className="space-y-1">
+        {playerState.availableQualities.length > 0 && (
+          <div className="space-y-1">
+            <button 
+              onClick={() => toggleSettingItem('quality')}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Settings size={18} />
+                <span>Quality</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs">
+                  {playerState.currentQuality === -1 ? 'Auto' : 
+                    playerState.availableQualities.find(q => q.id === playerState.currentQuality)?.height + 'p'}
+                </span>
+                <ChevronRight size={14} className={`transition-transform ${expandedSettingItem === 'quality' ? 'rotate-90' : ''}`} />
+              </div>
+            </button>
+            {expandedSettingItem === 'quality' && (
+              <div className="space-y-1 pl-10 pb-2">
+                <button onClick={() => { changeQuality(-1); setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${playerState.currentQuality === -1 ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                  Auto
+                </button>
+                {playerState.availableQualities.map((quality) => (
+                  <button key={quality.id} onClick={() => { changeQuality(quality.id); setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${playerState.currentQuality === quality.id ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                    {quality.height}p
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        <button 
+          onClick={() => toggleSettingItem('speed')}
+          className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Play size={18} />
+            <span>Playback speed</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs">{videoRef.current?.playbackRate === 1 ? 'Normal' : `${videoRef.current?.playbackRate}x`}</span>
+            <ChevronRight size={14} className={`transition-transform ${expandedSettingItem === 'speed' ? 'rotate-90' : ''}`} />
+          </div>
+        </button>
+        {expandedSettingItem === 'speed' && (
+          <div className="space-y-1 pl-10 pb-2">
+            {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+              <button key={speed} onClick={() => { if (videoRef.current) videoRef.current.playbackRate = speed; setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${videoRef.current?.playbackRate === speed ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                {speed === 1 ? 'Normal' : `${speed}x`}
+              </button>
+            ))}
+          </div>
+        )}
+        
+        {playerState.availableSubtitles.length > 0 && (
+          <div className="space-y-1">
+            <button 
+              onClick={() => toggleSettingItem('captions')}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Subtitles size={18} />
+                <span>Captions</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-xs">{playerState.currentSubtitle === '' ? 'Off' : 'On'}</span>
+                <ChevronRight size={14} className={`transition-transform ${expandedSettingItem === 'captions' ? 'rotate-90' : ''}`} />
+              </div>
+            </button>
+            {expandedSettingItem === 'captions' && (
+              <div className="space-y-1 pl-10 pb-2">
+                <button onClick={() => { changeSubtitle(''); setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${playerState.currentSubtitle === '' ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                  Off
+                </button>
+                {playerState.availableSubtitles.map((subtitle) => (
+                  <button key={subtitle.id} onClick={() => { changeSubtitle(subtitle.id); setExpandedSettingItem(null); }} className={`w-full text-left px-3 py-1.5 text-sm rounded transition-colors ${playerState.currentSubtitle === subtitle.id ? 'bg-white/20 text-white' : 'text-gray-300 hover:bg-white/10'}`}>
+                    {subtitle.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors">
+          <Lock size={18} />
+          <span>Lock screen</span>
+        </button>
+        
+        <button className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-gray-300 hover:bg-white/10 rounded transition-colors">
+          <div className="flex items-center gap-3">
+            <Settings size={18} />
+            <span>More</span>
+          </div>
+          <ChevronRight size={14} />
+        </button>
+      </div>
     );
   };
-  
-  const MobileSettingsOverlay = () => {
-      const handleClose = () => {
-          setPlayerState(prev => ({...prev, showSettings: false}));
-          setExpandedSettingItem(null);
-      }
-
-      if (isLandscape) {
-          return (
-              <Sheet open={playerState.showSettings} onOpenChange={(open) => { if (!open) handleClose(); }}>
-                  <SheetContent side="right" className="w-[280px] bg-black/80 backdrop-blur-sm border-white/20 text-white p-0">
-                      <SheetHeader className="p-4 border-b border-white/10">
-                          <SheetTitle>Settings</SheetTitle>
-                      </SheetHeader>
-                      {expandedSettingItem ? 
-                          <SettingsSubMenu item={expandedSettingItem} onBack={() => setExpandedSettingItem(null)} /> : 
-                          <SettingsMenu onSelect={() => {}} />
-                      }
-                  </SheetContent>
-              </Sheet>
-          );
-      }
-
-      return (
-          <Drawer open={playerState.showSettings} onOpenChange={(open) => { if (!open) handleClose(); }}>
-              <DrawerContent className="bg-black/80 backdrop-blur-sm border-t border-white/20 text-white">
-                  {expandedSettingItem ? 
-                      <SettingsSubMenu item={expandedSettingItem} onBack={() => setExpandedSettingItem(null)} /> : 
-                      <SettingsMenu onSelect={() => {}} />
-                  }
-              </DrawerContent>
-          </Drawer>
-      );
-  };
-
 
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
@@ -666,17 +624,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {playerState.isLoading && (
         <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
           <div className="text-center text-white">
-           <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
+            <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
             <div className="text-sm">Loading stream...</div>
           </div>
         </div>
       )}
       
       <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        {/* Mobile Settings Trigger */}
+        {/* Top Controls - Settings Icon (Mobile) */}
         <div className="absolute top-0 right-0 p-3 md:hidden">
           <button 
-            onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: true, showControls: true })); lastActivityRef.current = Date.now(); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }}
+            onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
             className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
           >
             <Settings size={20} />
@@ -685,7 +643,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
           <div className="absolute inset-0 flex items-center justify-center">
-           <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all">
+            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all">
               <Play size={24} fill="white" className="ml-1" />
             </button>
           </div>
@@ -705,26 +663,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="flex items-center gap-2 md:gap-3">
             {/* Desktop/Tablet Layout */}
             <div className="hidden md:flex items-center gap-3 flex-1">
-              <div className="relative" onMouseEnter={() => setShowVolumeSlider(true)} onMouseLeave={() => setShowVolumeSlider(false)}>
+              <div className="relative">
                 <button 
                   onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
+                  onMouseEnter={() => setShowVolumeSlider(true)}
+                  onMouseLeave={() => setShowVolumeSlider(false)}
                   className="text-white hover:text-blue-300 transition-colors p-2"
                 >
                   {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
                 </button>
                 
                 {showVolumeSlider && (
-                   <div 
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg px-2 py-3"
+                  <div 
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg p-2 w-8"
+                    onMouseEnter={() => setShowVolumeSlider(true)}
+                    onMouseLeave={() => setShowVolumeSlider(false)}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <input
                       type="range"
                       min="0"
                       max="100"
-                      value={playerState.isMuted ? 0 : volume}
+                      value={volume}
                       onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                      className="volume-slider w-[100px] h-1"
+                      className="volume-slider"
+                      style={{ 
+                        writingMode: 'vertical-lr',
+                        direction: 'rtl',
+                        width: '4px',
+                        height: '80px',
+                        cursor: 'pointer'
+                      }}
                     />
                   </div>
                 )}
@@ -760,41 +729,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
               
               <div className="flex-1"></div>
+              
               {document.pictureInPictureEnabled && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); togglePip(); }} 
                   className="text-white hover:text-blue-300 transition-colors p-2" 
-                   title="Picture-in-picture"
+                  title="Picture-in-picture"
                 >
                   <PictureInPicture2 size={20} />
                 </button>
               )}
               
-              <div className="hidden md:block">
-                <Popover open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({ ...prev, showSettings: isOpen }))}>
-                  <PopoverTrigger asChild>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings, showControls: true })); lastActivityRef.current = Date.now(); if(controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); }} 
-                      className="text-white hover:text-blue-300 transition-colors p-2" 
-                      title="Settings"
-                    >
-                      <Settings size={20} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent 
-                    className="bg-black/95 backdrop-blur-md border-white/20 text-white w-80" 
-                    onClick={(e) => e.stopPropagation()}
-                    side="top"
-                    align="end"
-                    sideOffset={12}
+              {playerState.availableSubtitles.length > 0 && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); }} 
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
+                  title="Captions"
+                >
+                  <Subtitles size={20} />
+                </button>
+              )}
+              
+              <Popover open={playerState.showSettings} onOpenChange={(isOpen) => setPlayerState(prev => ({ ...prev, showSettings: isOpen }))}>
+                <PopoverTrigger asChild>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setPlayerState(prev => ({ ...prev, showSettings: !prev.showSettings })); }} 
+                    className="text-white hover:text-blue-300 transition-colors p-2" 
+                    title="Settings"
                   >
-                     {expandedSettingItem ? 
-                        <SettingsSubMenu item={expandedSettingItem} onBack={() => setExpandedSettingItem(null)} /> : 
-                        <SettingsMenu onSelect={() => {}} />
-                    }
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    <Settings size={20} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent 
+                  className="bg-black/95 backdrop-blur-md border-white/20 text-white w-80 max-h-96 overflow-y-auto" 
+                  onClick={(e) => e.stopPropagation()}
+                  side="top"
+                  align="end"
+                >
+                  <SettingsContent />
+                </PopoverContent>
+              </Popover>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
@@ -816,7 +790,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
                 <div className="text-white text-xs whitespace-nowrap">
-                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
               
@@ -850,7 +824,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   title="Picture-in-picture"
                 >
                   <PictureInPicture2 size={18} />
-                 </button>
+                </button>
               )}
               
               <button 
@@ -863,8 +837,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
         
-        {isMobile && <MobileSettingsOverlay />}
-
+        {/* Mobile Settings Overlay */}
+        {isMobile && playerState.showSettings && (
+          <div 
+            className={`absolute ${
+              isLandscape 
+                ? 'right-4 top-1/2 -translate-y-1/2 w-80 max-h-[70vh]' 
+                : 'bottom-20 left-1/2 -translate-x-1/2 w-[90vw] max-w-md max-h-[60vh]'
+            } bg-black/95 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden z-50`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-full h-1 bg-white/30 rounded-full mx-auto mt-2 mb-3" style={{ width: '40px' }}></div>
+            <div className="overflow-y-auto max-h-full px-2 pb-4">
+              <SettingsContent />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
