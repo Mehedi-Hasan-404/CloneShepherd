@@ -59,7 +59,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isMobile = useIsMobile();
   const [isLandscape, setIsLandscape] = useState(false);
   const [volume, setVolume] = useState(100);
-  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [expandedSettingItem, setExpandedSettingItem] = useState<string | null>(null);
 
   const [playerState, setPlayerState] = useState({
@@ -537,8 +536,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     const checkOrientation = () => {
-      const isLandscapeOrientation = window.innerWidth > window.innerHeight;
-      setIsLandscape(isLandscapeOrientation);
+      // Only check landscape for mobile devices
+      if (isMobile) {
+        const isLandscapeOrientation = window.innerWidth > window.innerHeight;
+        setIsLandscape(isLandscapeOrientation);
+      } else {
+        setIsLandscape(false);
+      }
     };
     
     checkOrientation();
@@ -549,7 +553,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
     };
-  }, []);
+  }, [isMobile]);
 
   if (playerState.error && !playerState.isLoading) {
     return (
@@ -609,20 +613,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
       
       <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <div className="absolute top-0 right-0 p-3 md:hidden">
-          <button 
-            onClick={handleSettingsToggle}
-            className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
-            data-testid="button-settings-mobile"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
+        {isMobile && (
+          <div className="absolute top-0 right-0 p-3">
+            <button 
+              onClick={handleSettingsToggle}
+              className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
+              data-testid="button-settings-mobile"
+            >
+              <Settings size={20} />
+            </button>
+          </div>
+        )}
 
-        {!playerState.isPlaying && !playerState.isLoading && !playerState.error && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all" data-testid="button-play-center">
-              <Play size={24} fill="white" className="ml-1" />
+        {!playerState.isLoading && !playerState.error && playerState.showControls && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <button 
+              onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+              className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto" 
+              data-testid="button-play-pause-center"
+            >
+              {playerState.isPlaying ? (
+                <Pause size={24} fill="white" />
+              ) : (
+                <Play size={24} fill="white" className="ml-1" />
+              )}
             </button>
           </div>
         )}
@@ -639,36 +653,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
           
           <div className="flex items-center gap-2 md:gap-3">
-            <div className="hidden md:flex items-center gap-3 flex-1">
-              <div className="relative">
+            {!isMobile && (
+              <div className="flex items-center gap-3 flex-1">
+              <div className="flex items-center gap-2">
                 <button 
                   onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                  onMouseEnter={() => setShowVolumeSlider(true)}
-                  onMouseLeave={() => setShowVolumeSlider(false)}
                   className="text-white hover:text-blue-300 transition-colors p-2"
                   data-testid="button-volume"
                 >
                   {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
                 </button>
                 
-                {showVolumeSlider && (
-                  <div 
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-black/90 backdrop-blur-sm rounded-lg p-3"
-                    onMouseEnter={() => setShowVolumeSlider(true)}
-                    onMouseLeave={() => setShowVolumeSlider(false)}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={volume}
-                      onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                      className="volume-slider-horizontal w-24"
-                      data-testid="slider-volume"
-                    />
-                  </div>
-                )}
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={volume}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                  className="w-24 h-1 bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
+                  data-testid="slider-volume"
+                  onClick={(e) => e.stopPropagation()}
+                />
               </div>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
@@ -733,9 +738,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               >
                 {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </button>
-            </div>
+              </div>
+            )}
             
-            <div className="flex md:hidden items-center gap-2 flex-1">
+            {isMobile && (
+              <div className="flex items-center gap-2 flex-1">
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
                 className="text-white hover:text-blue-300 transition-colors p-2"
@@ -794,7 +801,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               >
                 {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
               </button>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
