@@ -601,7 +601,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={true} />
       
       {playerState.isLoading && (
         <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
@@ -612,9 +612,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
       
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div className="absolute inset-0 pointer-events-none">
+        {!isMobile && (
+          <div className="absolute top-4 right-4 z-10 pointer-events-auto">
+            <button 
+              onClick={handleSettingsToggle}
+              className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
+              data-testid="button-settings-desktop"
+            >
+              <Settings size={20} />
+            </button>
+          </div>
+        )}
         {isMobile && (
-          <div className="absolute top-0 right-0 p-3">
+          <div className="absolute top-4 right-4 z-10 pointer-events-auto">
             <button 
               onClick={handleSettingsToggle}
               className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
@@ -624,187 +635,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </button>
           </div>
         )}
-
-        {!playerState.isLoading && !playerState.error && playerState.showControls && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <button 
-              onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-              className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto" 
-              data-testid="button-play-pause-center"
-            >
-              {playerState.isPlaying ? (
-                <Pause size={24} fill="white" />
-              ) : (
-                <Play size={24} fill="white" className="ml-1" />
-              )}
-            </button>
-          </div>
-        )}
-        
-        <div className="absolute bottom-0 left-0 right-0 p-3 md:p-4">
-          <div className="mb-3 md:mb-4">
-            <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick}>
-              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white bg-opacity-30 rounded-full">
-                <div className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full" style={{ width: isFinite(playerState.duration) && playerState.duration > 0 ? `${(playerState.buffered / playerState.duration) * 100}%` : '0%' }}/>
-                <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${currentTimePercentage}%` }}/>
-                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()}/>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 md:gap-3">
-            {!isMobile && (
-              <div className="flex items-center gap-3 flex-1">
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                  className="text-white hover:text-blue-300 transition-colors p-2"
-                  data-testid="button-volume"
-                >
-                  {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
-                </button>
-                
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  className="w-24 h-1 bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
-                  data-testid="slider-volume"
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-              
-              {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className="text-white text-sm whitespace-nowrap" data-testid="text-time">
-                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                </div>
-              )}
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2" 
-                title="Seek backward 10s"
-                data-testid="button-rewind"
-              >
-                <Rewind size={20} />
-              </button>
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-play-pause"
-              >
-                {playerState.isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2" 
-                title="Seek forward 10s"
-                data-testid="button-forward"
-              >
-                <FastForward size={20} />
-              </button>
-              
-              <div className="flex-1"></div>
-              
-              {document.pictureInPictureEnabled && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); togglePip(); }} 
-                  className="text-white hover:text-blue-300 transition-colors p-2" 
-                  title="Picture-in-picture"
-                  data-testid="button-pip"
-                >
-                  <PictureInPicture2 size={20} />
-                </button>
-              )}
-              
-              <button 
-                onClick={handleSettingsToggle}
-                className="text-white hover:text-blue-300 transition-colors p-2" 
-                title="Settings"
-                data-testid="button-settings"
-              >
-                <Settings size={20} />
-              </button>
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2" 
-                title="Fullscreen"
-                data-testid="button-fullscreen"
-              >
-                {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-              </button>
-              </div>
-            )}
-            
-            {isMobile && (
-              <div className="flex items-center gap-2 flex-1">
-              <button 
-                onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-volume-mobile"
-              >
-                {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-              </button>
-              
-              {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className="text-white text-xs whitespace-nowrap" data-testid="text-time-mobile">
-                  {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                </div>
-              )}
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-rewind-mobile"
-              >
-                <Rewind size={18} />
-              </button>
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-play-pause-mobile"
-              >
-                {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
-              </button>
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-forward-mobile"
-              >
-                <FastForward size={18} />
-              </button>
-              
-              <div className="flex-1"></div>
-              
-              {document.pictureInPictureEnabled && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); togglePip(); }} 
-                  className="text-white hover:text-blue-300 transition-colors p-2" 
-                  title="Picture-in-picture"
-                  data-testid="button-pip-mobile"
-                >
-                  <PictureInPicture2 size={18} />
-                </button>
-              )}
-              
-              <button 
-                onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                className="text-white hover:text-blue-300 transition-colors p-2"
-                data-testid="button-fullscreen-mobile"
-              >
-                {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-              </button>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* YouTube-style Settings Overlay */}
@@ -820,17 +650,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           {/* Settings Panel */}
           <div 
             className={`fixed z-50 bg-[#212121] ${
-              isLandscape && isMobile
-                ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[20px] w-[400px] max-w-[90vw]'
-                : 'bottom-0 left-0 right-0 rounded-t-[18px]'
+              isMobile
+                ? 'bottom-0 left-0 right-0 rounded-t-[18px]'
+                : 'bottom-20 right-4 rounded-[12px] w-[320px]'
             }`}
             onClick={(e) => e.stopPropagation()}
             style={{
-              maxHeight: isLandscape && isMobile ? '80vh' : '60vh'
+              maxHeight: isMobile ? '60vh' : '70vh'
             }}
           >
-            {/* Handle bar for portrait mode */}
-            {!isLandscape && isMobile && (
+            {/* Handle bar for mobile */}
+            {isMobile && (
               <div className="flex justify-center pt-3 pb-2">
                 <div className="w-10 h-1 bg-white/30 rounded-full" />
               </div>
@@ -984,7 +814,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               )}
 
               {/* Audio */}
-              {!expandedSettingItem && playerState.availableAudioTracks.length > 0 && (
+              {!expandedSettingItem && !isMobile && (
                 <button
                   onClick={() => handleSettingClick('audio')}
                   className="w-full flex items-center justify-between px-8 py-4 text-white hover:bg-white/10 transition-colors"
@@ -1007,18 +837,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <ChevronRight size={20} className="rotate-180" />
                     <span style={{ fontSize: '15px', fontWeight: 500 }}>Audio</span>
                   </button>
-                  {playerState.availableAudioTracks.map((audioTrack) => (
-                    <button
-                      key={audioTrack.id}
-                      onClick={() => changeAudioTrack(audioTrack.id)}
-                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
-                        playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
-                      }`}
-                      style={{ fontSize: '15px', fontWeight: 400 }}
-                    >
-                      {audioTrack.label}
-                    </button>
-                  ))}
+                  {playerState.availableAudioTracks.length > 0 ? (
+                    playerState.availableAudioTracks.map((audioTrack) => (
+                      <button
+                        key={audioTrack.id}
+                        onClick={() => changeAudioTrack(audioTrack.id)}
+                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                          playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
+                        }`}
+                        style={{ fontSize: '15px', fontWeight: 400 }}
+                      >
+                        {audioTrack.label}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-14 py-3 text-white/50" style={{ fontSize: '14px' }}>
+                      No audio tracks available
+                    </div>
+                  )}
                 </div>
               )}
             </div>
