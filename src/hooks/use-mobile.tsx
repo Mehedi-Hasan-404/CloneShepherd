@@ -7,9 +7,7 @@ export function useIsMobile() {
 
   React.useEffect(() => {
     const compute = () => {
-      const minDim = Math.min(window.innerWidth, window.innerHeight);
-      const isCoarse = window.matchMedia("(pointer: coarse)").matches;
-      setIsMobile(minDim < MOBILE_BREAKPOINT || isCoarse);
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     };
 
     compute();
