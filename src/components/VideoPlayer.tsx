@@ -1,4 +1,4 @@
-// /src/components/VideoPlayer.tsx - YouTube-style Settings Overlay
+// /src/components/VideoPlayer.tsx - Responsive Player with Desktop & Mobile Layouts
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Music } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -420,6 +420,49 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [playerState.showSettings, playerState.isPlaying, startControlsTimer]);
 
+  useEffect(() => {
+    const checkOrientation = () => {
+      if (typeof window !== 'undefined' && window.screen?.orientation) {
+        const type = window.screen.orientation.type;
+        setIsLandscape(type.includes('landscape'));
+      } else {
+        setIsLandscape(window.innerWidth > window.innerHeight);
+      }
+    };
+    
+    checkOrientation();
+    window.addEventListener('orientationchange', checkOrientation);
+    window.addEventListener('resize', checkOrientation);
+    
+    return () => {
+      window.removeEventListener('orientationchange', checkOrientation);
+      window.removeEventListener('resize', checkOrientation);
+    };
+  }, []);
+
+  const handleSheetTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+    setSheetDragY(0);
+  };
+
+  const handleSheetTouchMove = (e: React.TouchEvent) => {
+    if (touchStartYRef.current === null) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - touchStartYRef.current;
+    if (deltaY > 0) {
+      setSheetDragY(deltaY);
+    }
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (sheetDragY > 100) {
+      setPlayerState(prev => ({ ...prev, showSettings: false }));
+      setExpandedSettingItem(null);
+    }
+    setSheetDragY(0);
+    touchStartYRef.current = null;
+  };
+
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
   }, []);
@@ -475,6 +518,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       lastActivityRef.current = Date.now();
     }
   }, []);
+  
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
@@ -485,121 +529,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (screen.orientation && 'unlock' in screen.orientation) {
           try {
             (screen.orientation as any).unlock();
-          } catch (err) {
-            console.log('Could not unlock orientation');
-          }
+          } catch (e) { }
         }
       } else {
         await container.requestFullscreen();
-        if (screen.orientation && 'lock' in screen.orientation) {
+        if (screen.orientation && 'lock' in screen.orientation && isMobile) {
           try {
-            await (screen.orientation as any).lock('landscape').catch(() => {
-              console.log('Orientation lock not supported');
-            });
-          } catch (err) {
-            console.log('Could not lock orientation');
-          }
+            await (screen.orientation as any).lock('landscape').catch(() => {});
+          } catch (e) { }
         }
       }
-    } catch (error) {
-      console.warn('Fullscreen error:', error);
-    }
+    } catch (error) { }
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, [isMobile]);
+
+  const togglePip = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !document.pictureInPictureEnabled) return;
     
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await video.requestPictureInPicture();
+      }
+    } catch (error) { }
     setPlayerState(prev => ({ ...prev, showControls: true }));
     lastActivityRef.current = Date.now();
   }, []);
-  const togglePip = useCallback(async () => {
-    const video = videoRef.current; if (!video || !document.pictureInPictureEnabled) return; if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
-  }, []);
-  const handlePlayerClick = useCallback((e: React.MouseEvent) => {
-    if (playerState.showSettings) { 
-      setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true })); 
-      setExpandedSettingItem(null);
-      lastActivityRef.current = Date.now(); 
-      return; 
-    } 
-    const newShowControls = !playerState.showControls; 
-    setPlayerState(prev => ({ ...prev, showControls: newShowControls })); 
-    lastActivityRef.current = Date.now(); 
-    if (newShowControls && playerState.isPlaying) startControlsTimer();
-  }, [playerState.showSettings, playerState.showControls, playerState.isPlaying, startControlsTimer]);
-  
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+
+  const handleMouseMove = useCallback(() => {
     if (!playerState.showSettings) resetControlsTimer();
-  }, [resetControlsTimer, playerState.showSettings]);
-  
-  // Bottom sheet touch handlers for drag-to-close
-  const handleSheetTouchStart = (e: React.TouchEvent) => {
-    touchStartYRef.current = e.touches[0].clientY;
-  };
-  const handleSheetTouchMove = (e: React.TouchEvent) => {
-    if (touchStartYRef.current == null) return;
-    const delta = e.touches[0].clientY - touchStartYRef.current;
-    if (delta > 0) setSheetDragY(delta);
-  };
-  const handleSheetTouchEnd = () => {
-    if (sheetDragY > 80) {
-      setPlayerState(prev => ({ ...prev, showSettings: false, showControls: true }));
-    }
-    setSheetDragY(0);
-    touchStartYRef.current = null;
-  };
+  }, [playerState.showSettings, resetControlsTimer]);
 
-  useEffect(() => {
-    document.addEventListener('mousemove', handleDragMove); 
-    document.addEventListener('mouseup', handleDragEnd); 
-    return () => { 
-      document.removeEventListener('mousemove', handleDragMove); 
-      document.removeEventListener('mouseup', handleDragEnd); 
-    };
-  }, [handleDragMove, handleDragEnd]);
-
-  useEffect(() => {
-    const checkOrientation = () => {
-      // Only check landscape for mobile devices
-      if (isMobile) {
-        const isLandscapeOrientation = window.innerWidth > window.innerHeight;
-        setIsLandscape(isLandscapeOrientation);
-      } else {
-        setIsLandscape(false);
-      }
-    };
-    
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-    
-    return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, [isMobile]);
-
-  useEffect(() => {
+  const handlePlayerClick = useCallback(() => {
     if (playerState.showSettings) {
-      document.body.classList.add('overlay-open');
-    } else {
-      document.body.classList.remove('overlay-open');
+      setPlayerState(prev => ({ ...prev, showSettings: false }));
+      setExpandedSettingItem(null);
     }
-    return () => document.body.classList.remove('overlay-open');
   }, [playerState.showSettings]);
-
-  if (playerState.error && !playerState.isLoading) {
-    return (
-      <div className={`w-full h-full bg-black flex items-center justify-center ${className}`}>
-        <div className="text-center text-white p-6">
-          <AlertCircle className="w-12 h-12 mx-auto mb-3 text-red-400" />
-          <div className="text-lg font-medium mb-2">Stream Error</div>
-          <div className="text-sm text-gray-300 mb-4">{playerState.error}</div>
-          <button onClick={handleRetry} className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors">
-            <RotateCcw size={14} /> Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
   const handleSettingsToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -628,6 +597,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return speed === 1 ? 'Normal' : `${speed}`;
   };
 
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (dragStartRef.current?.isDragging) handleDragMove(e);
+    };
+    const handleGlobalMouseUp = () => {
+      if (dragStartRef.current?.isDragging) handleDragEnd();
+    };
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [handleDragMove, handleDragEnd]);
+
+  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
+
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
@@ -637,6 +623,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="text-center text-white">
             <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
             <div className="text-sm">Loading stream...</div>
+          </div>
+        </div>
+      )}
+      
+      {playerState.error && (
+        <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4">
+          <div className="text-center text-white max-w-md">
+            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+            <h3 className="text-lg font-semibold mb-2">Playback Error</h3>
+            <p className="text-sm text-gray-300 mb-4">{playerState.error}</p>
+            <button onClick={handleRetry} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 mx-auto transition-colors">
+              <RotateCcw size={16} />
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -839,19 +839,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Settings Overlay - Desktop Only */}
       {playerState.showSettings && !isMobile && (
         <>
-          {/* Backdrop - semi-transparent */}
           <div 
             className="absolute inset-0 bg-black/40 z-40"
             onClick={handleSettingsToggle}
           />
           
-          {/* Settings Panel - Desktop */}
           <div 
             className="absolute z-50 bg-black/90 backdrop-blur-md rounded-lg bottom-20 right-4 w-[280px]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="py-2">
-              {/* Quality */}
               {!expandedSettingItem ? (
                 <>
                   {playerState.availableQualities.length > 0 && (
@@ -870,7 +867,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                   )}
                   
-                  {/* Playback Speed */}
                   <button
                     onClick={() => handleSettingClick('speed')}
                     className="w-full flex items-center justify-between px-4 py-3 text-white hover:bg-white/10 transition-colors"
@@ -885,7 +881,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </div>
                   </button>
                   
-                  {/* More (for Audio & Captions) */}
                   <button
                     onClick={() => handleSettingClick('more')}
                     className="w-full flex items-center justify-between px-4 py-3 text-white hover:bg-white/10 transition-colors"
@@ -957,7 +952,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <span className="text-sm">More</span>
                   </button>
                   
-                  {/* Captions */}
                   {playerState.availableSubtitles.length > 0 && (
                     <button
                       onClick={() => handleSettingClick('captions')}
@@ -971,7 +965,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                   )}
                   
-                  {/* Audio */}
                   <button
                     onClick={() => handleSettingClick('audio')}
                     className="w-full flex items-center justify-between px-12 py-2 text-sm text-white hover:bg-white/10 transition-colors"
@@ -1055,7 +1048,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           />
           
           {isLandscape ? (
-            /* Landscape Mode - Show all options at once */
             <div 
               className="fixed z-50 bg-[#212121] bottom-0 left-0 right-0 rounded-t-[18px]"
               onClick={(e) => e.stopPropagation()}
@@ -1251,7 +1243,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
           ) : (
-            /* Portrait Mode - Nested menus */
             <div 
               className="fixed z-50 bg-[#212121] bottom-0 left-0 right-0 rounded-t-[18px]"
               onClick={(e) => e.stopPropagation()}
