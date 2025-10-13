@@ -49,8 +49,28 @@ const CategoryChannels = ({ slug }: CategoryChannelsProps) => {
       const line = lines[i];
       
       if (line.startsWith('#EXTINF:')) {
-        const nameMatch = line.match(/,(.+)$/);
-        const channelName = nameMatch ? nameMatch[1].trim() : 'Unknown Channel';
+        // Enhanced name extraction - supports multiple M3U formats
+        let channelName = 'Unknown Channel';
+        
+        // Method 1: Try tvg-name attribute (most reliable)
+        const tvgNameMatch = line.match(/tvg-name="([^"]+)"/);
+        if (tvgNameMatch) {
+          channelName = tvgNameMatch[1].trim();
+        } else {
+          // Method 2: Try group-title attribute followed by comma and name
+          const groupTitleMatch = line.match(/group-title="[^"]*",(.+)$/);
+          if (groupTitleMatch) {
+            channelName = groupTitleMatch[1].trim();
+          } else {
+            // Method 3: Fallback to text after last comma (original method)
+            const nameMatch = line.match(/,([^,]+)$/);
+            if (nameMatch) {
+              channelName = nameMatch[1].trim();
+            }
+          }
+        }
+        
+        // Extract logo URL
         const logoMatch = line.match(/tvg-logo="([^"]+)"/);
         const logoUrl = logoMatch ? logoMatch[1] : '/channel-placeholder.svg';
         
