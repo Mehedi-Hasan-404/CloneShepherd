@@ -475,14 +475,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const calculateNewTime = useCallback((clientX: number): number | null => {
     const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
   }, []);
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); const video = videoRef.current; if (!video || !isFinite(video.duration) || video.duration <= 0) return; wasPlayingBeforeSeekRef.current = !video.paused; dragStartRef.current = { isDragging: true }; setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); video.pause(); lastActivityRef.current = Date.now();
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation(); 
+    const video = videoRef.current; 
+    if (!video || !isFinite(video.duration) || video.duration <= 0) return; 
+    wasPlayingBeforeSeekRef.current = !video.paused; 
+    dragStartRef.current = { isDragging: true }; 
+    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); 
+    video.pause(); 
+    lastActivityRef.current = Date.now();
   }, []);
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    if (!dragStartRef.current?.isDragging) return; const newTime = calculateNewTime(e.clientX); if (newTime !== null) { setPlayerState(prev => ({ ...prev, currentTime: newTime, showControls: true })); seekTimeRef.current = newTime; } lastActivityRef.current = Date.now();
+  const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
+    if (!dragStartRef.current?.isDragging) return; 
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const newTime = calculateNewTime(clientX); 
+    if (newTime !== null) { 
+      setPlayerState(prev => ({ ...prev, currentTime: newTime, showControls: true })); 
+      seekTimeRef.current = newTime; 
+    } 
+    lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
   const handleDragEnd = useCallback(() => {
-    if (!dragStartRef.current?.isDragging) return; const video = videoRef.current; if (video) { video.currentTime = seekTimeRef.current; if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error); } dragStartRef.current = null; setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true })); lastActivityRef.current = Date.now();
+    if (!dragStartRef.current?.isDragging) return; 
+    const video = videoRef.current; 
+    if (video) { 
+      video.currentTime = seekTimeRef.current; 
+      if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error); 
+    } 
+    dragStartRef.current = null; 
+    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true })); 
+    lastActivityRef.current = Date.now();
   }, []);
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const newTime = calculateNewTime(e.clientX); if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
@@ -617,14 +639,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleGlobalMouseMove = (e: MouseEvent) => {
       if (dragStartRef.current?.isDragging) handleDragMove(e);
     };
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      if (dragStartRef.current?.isDragging) {
+        e.preventDefault();
+        handleDragMove(e);
+      }
+    };
     const handleGlobalMouseUp = () => {
       if (dragStartRef.current?.isDragging) handleDragEnd();
     };
+    const handleGlobalTouchEnd = () => {
+      if (dragStartRef.current?.isDragging) handleDragEnd();
+    };
     document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
     document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('touchend', handleGlobalTouchEnd);
     return () => {
       document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('touchmove', handleGlobalTouchMove);
       document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('touchend', handleGlobalTouchEnd);
     };
   }, [handleDragMove, handleDragEnd]);
 
@@ -701,7 +736,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const sizes = getControlSizes();
 
   return (
-    <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
+    <div ref={containerRef} className={`relative bg-black w-full h-full overflow-hidden ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
       
       {playerState.isLoading && (
@@ -756,13 +791,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
         
-        <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass}`}>
+        <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass} max-w-full`}>
           <div className="mb-2 md:mb-3">
             <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick}>
               <div className={`absolute inset-x-0 top-1/2 -translate-y-1/2 ${sizes.progressBarClass} bg-white bg-opacity-30 rounded-full`}>
                 <div className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full" style={{ width: isFinite(playerState.duration) && playerState.duration > 0 ? `${(playerState.buffered / playerState.duration) * 100}%` : '0%' }}/>
                 <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${currentTimePercentage}%` }}/>
-                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${sizes.progressThumbClass} rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()}/>
+                <div 
+                  className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${sizes.progressThumbClass} rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'} touch-none`} 
+                  style={{ left: `${currentTimePercentage}%` }} 
+                  onMouseDown={handleDragStart}
+                  onTouchStart={handleDragStart}
+                  onClick={(e) => e.stopPropagation()}
+                />
               </div>
             </div>
           </div>
@@ -779,16 +820,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : volume > 50 ? <Volume2 size={sizes.iconSmall} /> : <Volume1 size={sizes.iconSmall} />}
                 </button>
                 
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  className={`w-24 ${sizes.progressBarClass} bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:${sizes.progressThumbClass} [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:${sizes.progressThumbClass} [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0`}
-                  data-testid="slider-volume"
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div className="relative w-24" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                    className="w-full h-1 bg-red-500 rounded-full appearance-none cursor-pointer
+                      [&::-webkit-slider-track]:h-1 [&::-webkit-slider-track]:bg-red-500 [&::-webkit-slider-track]:rounded-full
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:hover:bg-red-700
+                      [&::-moz-range-track]:h-1 [&::-moz-range-track]:bg-red-500 [&::-moz-range-track]:rounded-full
+                      [&::-moz-range-progress]:h-1 [&::-moz-range-progress]:bg-red-500 [&::-moz-range-progress]:rounded-full
+                      [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-red-600 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:hover:bg-red-700"
+                    data-testid="slider-volume"
+                  />
+                </div>
               </div>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
