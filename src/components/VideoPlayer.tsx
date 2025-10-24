@@ -509,7 +509,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (video) {
       video.muted = !video.muted;
-      setPlayerState(prev => ({ ...prev, showControls: true, isMuted: video.muted }));
+      setPlayerState(prev => ({ ...prev, isMuted: video.muted, showControls: true }));
     }
     lastActivityRef.current = Date.now();
   }, []);
@@ -614,13 +614,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [initializePlayer]);
 
   // --- Seeking Logic ---
-  const calculateNewTime = (clientX: number) => {
+  const calculateNewTime = useCallback((clientX: number) => {
     if (!containerRef.current) return 0;
     const rect = containerRef.current.getBoundingClientRect();
     const position = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const newTime = position * (videoRef.current?.duration || 0);
     return isNaN(newTime) ? 0 : newTime;
-  };
+  }, []);
 
   const handleDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation(); // Prevent triggering handlePlayerClick
@@ -642,7 +642,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     seekTimeRef.current = newTime;
     // Update the display time without changing the actual video time
     setPlayerState(prev => ({ ...prev, currentTime: newTime }));
-  }, []);
+  }, [calculateNewTime]);
 
   const handleDragEnd = useCallback(() => {
     if (!dragStartRef.current?.isDragging) return;
@@ -679,7 +679,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         startControlsTimer();
       }
     }
-  }, [playerState.isPlaying, startControlsTimer]);
+  }, [playerState.isPlaying, startControlsTimer, calculateNewTime]);
 
   // --- Settings Logic ---
   const [expandedSettingItem, setExpandedSettingItem] = useState<'quality' | 'captions' | 'audio' | 'speed' | 'more' | null>(null);
@@ -957,15 +957,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onMouseDown={handleDragStart} // Enable dragging on the progress bar
             >
               <div
-                className="absolute top-0 left-0 h-full bg-blue-600"
+                className="absolute top-0 left-0 h-full bg-gray-500" // Buffered color
                 style={{ width: `${bufferedPercentage}%` }}
               ></div>
               <div
-                className="absolute top-0 left-0 h-full bg-white"
+                className="absolute top-0 left-0 h-full bg-red-600" // Progress color
                 style={{ width: `${progressPercentage}%` }}
               ></div>
               <div
-                className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
+                className="absolute top-1/2 w-3 h-3 bg-red-600 rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
                 style={{ left: `${progressPercentage}%` }}
               ></div>
             </div>
@@ -993,7 +993,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               max="100"
               value={playerState.isMuted ? 0 : playerState.volume}
               onChange={(e) => handleVolumeChange(parseInt(e.target.value))}
-              className="w-20 accent-white"
+              className="w-20 accent-red-600" // Volume slider color
             />
 
             <div className="text-white text-sm whitespace-nowrap" data-testid="text-time">
@@ -1261,15 +1261,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onMouseDown={handleDragStart} // Enable dragging on the progress bar for mobile too
           >
             <div
-              className="absolute top-0 left-0 h-full bg-blue-600"
+              className="absolute top-0 left-0 h-full bg-gray-500" // Buffered color
               style={{ width: `${bufferedPercentage}%` }}
             ></div>
             <div
-              className="absolute top-0 left-0 h-full bg-white"
+              className="absolute top-0 left-0 h-full bg-red-600" // Progress color
               style={{ width: `${progressPercentage}%` }}
             ></div>
             <div
-              className="absolute top-1/2 w-2 h-2 bg-white rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
+              className="absolute top-1/2 w-2 h-2 bg-red-600 rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
               style={{ left: `${progressPercentage}%` }}
             ></div>
           </div>
@@ -1289,7 +1289,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 max="100"
                 value={playerState.isMuted ? 0 : playerState.volume}
                 onChange={(e) => handleVolumeChange(parseInt(e.target.value))}
-                className="w-full accent-white h-1.5"
+                className="w-full accent-red-600 h-1.5" // Volume slider color
               />
             </div>
 
