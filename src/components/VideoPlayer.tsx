@@ -567,15 +567,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (playerState.showSettings) {
       setPlayerState(prev => ({ ...prev, showSettings: false }));
       setExpandedSettingItem(null);
-    } else {
-      if (playerState.showControls) {
-        setPlayerState(prev => ({ ...prev, showControls: false }));
-        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-      } else {
-        resetControlsTimer();
-      }
     }
-  }, [playerState.showSettings, playerState.showControls, resetControlsTimer]);
+  }, [playerState.showSettings]);
 
   const handleSettingsToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -621,76 +614,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 
-  const getControlSizes = () => {
-    const isFullscreenLandscape = playerState.isFullscreen && isLandscape;
-    const isMobileLandscape = isMobile && isLandscape;
-    const isMobilePortrait = isMobile && !isLandscape;
-    
-    if (isFullscreenLandscape) {
-      return {
-        iconSmall: 28,
-        iconMedium: 32,
-        iconLarge: 36,
-        centerButtonClass: 'w-24 h-24',
-        centerIcon: 40,
-        paddingClass: 'p-4',
-        gapClass: 'gap-4',
-        textClass: 'text-lg',
-        progressBarClass: 'h-2',
-        progressThumbClass: 'w-5 h-5',
-        containerPaddingClass: 'p-6'
-      };
-    }
-    
-    if (isMobileLandscape) {
-      return {
-        iconSmall: 22,
-        iconMedium: 26,
-        iconLarge: 28,
-        centerButtonClass: 'w-20 h-20',
-        centerIcon: 32,
-        paddingClass: 'p-3',
-        gapClass: 'gap-3',
-        textClass: 'text-base',
-        progressBarClass: 'h-1.5',
-        progressThumbClass: 'w-4 h-4',
-        containerPaddingClass: 'p-4'
-      };
-    }
-    
-    if (isMobilePortrait) {
-      return {
-        iconSmall: 18,
-        iconMedium: 22,
-        iconLarge: 24,
-        centerButtonClass: 'w-16 h-16',
-        centerIcon: 28,
-        paddingClass: 'p-2',
-        gapClass: 'gap-2',
-        textClass: 'text-sm',
-        progressBarClass: 'h-1',
-        progressThumbClass: 'w-3 h-3',
-        containerPaddingClass: 'p-3'
-      };
-    }
-    
-    return {
-      iconSmall: 20,
-      iconMedium: 24,
-      iconLarge: 26,
-      centerButtonClass: 'w-16 h-16',
-      centerIcon: 28,
-      paddingClass: 'p-2',
-      gapClass: 'gap-3',
-      textClass: 'text-sm',
-      progressBarClass: 'h-1',
-      progressThumbClass: 'w-3 h-3',
-      containerPaddingClass: 'p-4'
-    };
-  };
-
-  const sizes = getControlSizes();
-
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
@@ -699,7 +622,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
           <div className="text-center text-white">
             <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin" />
-            <div className={`${sizes.textClass}`}>Loading stream...</div>
+            <div className="text-sm">Loading stream...</div>
           </div>
         </div>
       )}
@@ -709,7 +632,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="text-center text-white max-w-md">
             <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
             <h3 className="text-lg font-semibold mb-2">Playback Error</h3>
-            <p className={`text-gray-300 mb-4 ${sizes.textClass}`}>{playerState.error}</p>
+            <p className="text-sm text-gray-300 mb-4">{playerState.error}</p>
             <button onClick={handleRetry} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 mx-auto transition-colors">
               <RotateCcw size={16} />
               Retry
@@ -723,10 +646,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute top-4 right-4 z-10">
             <button 
               onClick={handleSettingsToggle}
-              className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} bg-black/50 backdrop-blur-sm rounded-full`}
+              className="text-white hover:text-blue-300 transition-colors p-2 bg-black/50 backdrop-blur-sm rounded-full"
               data-testid="button-settings-mobile"
             >
-              <Settings size={sizes.iconSmall} />
+              <Settings size={20} />
             </button>
           </div>
         )}
@@ -735,39 +658,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <button 
               onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-              className={`${sizes.centerButtonClass} bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto`}
+              className="w-16 h-16 bg-white bg-opacity-20 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-opacity-30 transition-all pointer-events-auto" 
               data-testid="button-play-pause-center"
             >
               {playerState.isPlaying ? (
-                <Pause size={sizes.centerIcon} fill="white" />
+                <Pause size={24} fill="white" />
               ) : (
-                <Play size={sizes.centerIcon} fill="white" className="ml-1" />
+                <Play size={24} fill="white" className="ml-1" />
               )}
             </button>
           </div>
         )}
         
-        <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass}`}>
-          <div className="mb-2 md:mb-3">
+        <div className="absolute bottom-0 left-0 right-0 p-3 md:p-4">
+          <div className="mb-3 md:mb-4">
             <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick}>
-              <div className={`absolute inset-x-0 top-1/2 -translate-y-1/2 ${sizes.progressBarClass} bg-white bg-opacity-30 rounded-full`}>
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-white bg-opacity-30 rounded-full">
                 <div className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full" style={{ width: isFinite(playerState.duration) && playerState.duration > 0 ? `${(playerState.buffered / playerState.duration) * 100}%` : '0%' }}/>
                 <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${currentTimePercentage}%` }}/>
-                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${sizes.progressThumbClass} rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()}/>
+                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()}/>
               </div>
             </div>
           </div>
           
-          <div className={`flex items-center ${sizes.gapClass}`}>
+          <div className="flex items-center gap-2 md:gap-3">
             {!isMobile && (
-              <div className={`flex items-center ${sizes.gapClass} flex-1`}>
+              <div className="flex items-center gap-3 flex-1">
               <div className="flex items-center gap-2">
                 <button 
                   onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                  className="text-white hover:text-blue-300 transition-colors p-2"
                   data-testid="button-volume"
                 >
-                  {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : volume > 50 ? <Volume2 size={sizes.iconSmall} /> : <Volume1 size={sizes.iconSmall} />}
+                  {playerState.isMuted ? <VolumeX size={20} /> : volume > 50 ? <Volume2 size={20} /> : <Volume1 size={20} />}
                 </button>
                 
                 <input
@@ -776,42 +699,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   max="100"
                   value={volume}
                   onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  className={`w-24 ${sizes.progressBarClass} bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:${sizes.progressThumbClass} [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:${sizes.progressThumbClass} [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0`}
+                  className="w-24 h-1 bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
                   data-testid="slider-volume"
                   onClick={(e) => e.stopPropagation()}
                 />
               </div>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className={`text-white ${sizes.textClass} whitespace-nowrap`} data-testid="text-time">
+                <div className="text-white text-sm whitespace-nowrap" data-testid="text-time">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
               
               <button 
                 onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Seek backward 10s"
                 data-testid="button-rewind"
               >
-                <Rewind size={sizes.iconSmall} />
+                <Rewind size={20} />
               </button>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-play-pause"
               >
-                {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
+                {playerState.isPlaying ? <Pause size={24} /> : <Play size={24} />}
               </button>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Seek forward 10s"
                 data-testid="button-forward"
               >
-                <FastForward size={sizes.iconSmall} />
+                <FastForward size={20} />
               </button>
               
               <div className="flex-1"></div>
@@ -819,72 +742,72 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {document.pictureInPictureEnabled && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); togglePip(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
                   title="Picture-in-picture"
                   data-testid="button-pip"
                 >
-                  <PictureInPicture2 size={sizes.iconSmall} />
+                  <PictureInPicture2 size={20} />
                 </button>
               )}
               
               <button 
                 onClick={handleSettingsToggle}
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Settings"
                 data-testid="button-settings"
               >
-                <Settings size={sizes.iconSmall} />
+                <Settings size={20} />
               </button>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2" 
                 title="Fullscreen"
                 data-testid="button-fullscreen"
               >
-                {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
+                {playerState.isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
               </button>
               </div>
             )}
             
             {isMobile && (
-              <div className={`flex items-center ${sizes.gapClass} flex-1`}>
+              <div className="flex items-center gap-2 flex-1">
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-volume-mobile"
               >
-                {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : <Volume2 size={sizes.iconSmall} />}
+                {playerState.isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
               </button>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className={`text-white ${sizes.textClass} whitespace-nowrap`} data-testid="text-time-mobile">
+                <div className="text-white text-xs whitespace-nowrap" data-testid="text-time-mobile">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
               
               <button 
                 onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-rewind-mobile"
               >
-                <Rewind size={sizes.iconSmall} />
+                <Rewind size={18} />
               </button>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-play-pause-mobile"
               >
-                {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
+                {playerState.isPlaying ? <Pause size={20} /> : <Play size={20} />}
               </button>
               
               <button 
                 onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-forward-mobile"
               >
-                <FastForward size={sizes.iconSmall} />
+                <FastForward size={18} />
               </button>
               
               <div className="flex-1"></div>
@@ -892,20 +815,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {document.pictureInPictureEnabled && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); togglePip(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                  className="text-white hover:text-blue-300 transition-colors p-2" 
                   title="Picture-in-picture"
                   data-testid="button-pip-mobile"
                 >
-                  <PictureInPicture2 size={sizes.iconSmall} />
+                  <PictureInPicture2 size={18} />
                 </button>
               )}
               
               <button 
                 onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                className="text-white hover:text-blue-300 transition-colors p-2"
                 data-testid="button-fullscreen-mobile"
               >
-                {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
+                {playerState.isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
               </button>
               </div>
             )}
