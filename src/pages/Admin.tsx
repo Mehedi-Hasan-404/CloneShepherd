@@ -433,7 +433,7 @@ const CategoriesManager = () => {
                 <div className="text-sm text-text-secondary">
                   URL: /category/{newCategory.slug || generateSlug(newCategory.name)}
                   {newCategory.m3uUrl && (
-                    <span className="ml-2 text-green-500">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ M3U Playlist</span>
+  <span className="ml-2 text-green-500">• M3U Playlist</span>
                   )}
                 </div>
               </div>
@@ -835,8 +835,9 @@ const ChannelsManager = () => {
                 <div className="text-sm text-text-secondary">
                   {categories.find(c => c.id === newChannel.categoryId)?.name}
                   {newChannel.streamUrl && (
-                    <span className="ml-2 text-green-500">ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Stream URL provided</span>
-                  )}
+  <span className="ml-2 text-green-500">• Stream URL provided</span>
+)}
+
                 </div>
               </div>
             </div>
