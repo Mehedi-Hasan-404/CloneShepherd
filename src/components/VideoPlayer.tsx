@@ -106,17 +106,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   
     const urlLower = cleanUrl.toLowerCase();
     
-    if (urlLower.includes('.mpd') || urlLower.includes('/dash/') || urlLower.includes('dash')) {
+    if (urlLower.includes('.mpd') || urlLower.includes('/dash/')) {
       return { type: 'dash', cleanUrl, drmInfo };
     }
-    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/') || urlLower.includes('hls')) {
+    if (urlLower.includes('.m3u8') || urlLower.includes('/hls/')) {
       return { type: 'hls', cleanUrl, drmInfo };
-    }
-    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov')) {
-      return { type: 'native', cleanUrl, drmInfo };
     }
     if (urlLower.includes('manifest') || drmInfo) {
       return { type: 'dash', cleanUrl, drmInfo };
+    }
+    if (urlLower.includes('.mp4') || urlLower.includes('.webm') || urlLower.includes('.mov') || 
+        urlLower.includes('.mkv') || urlLower.includes('.avi') || urlLower.includes('.flv') || 
+        urlLower.includes('.ts') || urlLower.includes('.ogg') || urlLower.includes('.ogv') ||
+        (urlLower.includes('pixeldrain') && urlLower.includes('download'))) {
+      return { type: 'native', cleanUrl, drmInfo };
+    }
+    if (urlLower.includes('dash')) {
+      return { type: 'dash', cleanUrl, drmInfo };
+    }
+    if (urlLower.includes('hls')) {
+      return { type: 'hls', cleanUrl, drmInfo };
     }
     return { type: 'hls', cleanUrl, drmInfo };
   }, []);
