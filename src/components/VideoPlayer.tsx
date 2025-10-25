@@ -1,4 +1,5 @@
-// /src/components/VideoPlayer.tsx - Responsive Player with Desktop & Mobile Layouts
+// /src/components/VideoPlayer.tsx - Part 1/5
+// Responsive Player with Desktop & Mobile Layouts
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Music, Check } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -472,7 +473,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       video.removeEventListener('error', onError);
     };
   };
-
+  
   const formatTime = (time: number): string => {
     if (!isFinite(time) || time <= 0) return "0:00";
     const hours = Math.floor(time / 3600);
@@ -482,7 +483,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
   
-const changeQuality = useCallback((qualityId: number) => {
+  const changeQuality = useCallback((qualityId: number) => {
     if (playerTypeRef.current === 'hls' && hlsRef.current) {
       hlsRef.current.currentLevel = qualityId;
     } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
@@ -559,12 +560,12 @@ const changeQuality = useCallback((qualityId: number) => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     setPlayerState(prev => ({ ...prev, showControls: true }));
     lastActivityRef.current = Date.now();
-    if (playerState.isPlaying && !playerState.showSettings) {
+    if (playerState.isPlaying && !playerState.showSettings && !playerState.isSeeking) {
       controlsTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) setPlayerState(prev => ({ ...prev, showControls: false }));
       }, CONTROLS_HIDE_DELAY);
     }
-  }, [playerState.isPlaying, playerState.showSettings]);
+  }, [playerState.isPlaying, playerState.showSettings, playerState.isSeeking]);
   
   useEffect(() => {
     isMountedRef.current = true;
@@ -594,10 +595,10 @@ const changeQuality = useCallback((qualityId: number) => {
   }, [playerState.isSeeking, resetControlsTimer]);
 
   useEffect(() => {
-    if (!playerState.showSettings && playerState.isPlaying) {
+    if (!playerState.showSettings && playerState.isPlaying && !playerState.isSeeking) {
       startControlsTimer();
     }
-  }, [playerState.showSettings, playerState.isPlaying, startControlsTimer]);
+  }, [playerState.showSettings, playerState.isPlaying, playerState.isSeeking, startControlsTimer]);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -990,7 +991,7 @@ const changeQuality = useCallback((qualityId: number) => {
   };
 
   const sizes = getControlSizes();
-
+  
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
@@ -1048,7 +1049,7 @@ const changeQuality = useCallback((qualityId: number) => {
             </div>
           )}
           
-          <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass} overflow-hidden flex flex-col max-h-24`}>
+          <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass} flex flex-col`} style={{ maxHeight: isMobile ? '30%' : '25%' }}>
             <div className="mb-2 md:mb-3 flex-shrink-0">
               <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
                 <div className={`absolute inset-x-0 top-1/2 -translate-y-1/2 ${sizes.progressBarClass} bg-white bg-opacity-30 rounded-full`}>
@@ -1061,7 +1062,7 @@ const changeQuality = useCallback((qualityId: number) => {
             
             <div className={`flex items-center ${sizes.gapClass} flex-nowrap justify-between flex-1 min-h-[40px]`}>
               {!isMobile && (
-                <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0`}>
+                <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0 flex-wrap`}>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button 
                       onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
@@ -1078,7 +1079,7 @@ const changeQuality = useCallback((qualityId: number) => {
                       value={volume}
                       onChange={(e) => handleVolumeChange(Number(e.target.value))}
                       className={`
-                        w-20 ${sizes.progressBarClass}
+                        w-20 flex-shrink-0 ${sizes.progressBarClass}
                         bg-white/30 rounded-full appearance-none cursor-pointer
                         [&::-webkit-slider-thumb]:appearance-none
                         [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
@@ -1105,62 +1106,66 @@ const changeQuality = useCallback((qualityId: number) => {
                     )}
                   </div>
                   
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Seek backward 10s"
-                    data-testid="button-rewind"
-                  >
-                    <Rewind size={sizes.iconSmall} />
-                  </button>
-                  
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    data-testid="button-play-pause"
-                  >
-                    {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
-                  </button>
-                  
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Seek forward 10s"
-                    data-testid="button-forward"
-                  >
-                    <FastForward size={sizes.iconSmall} />
-                  </button>
-                  
-                  <div className="flex-1"></div>
-                  
-                  {document.pictureInPictureEnabled && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button 
-                      onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                      onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
                       className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                      title="Picture-in-picture"
-                      data-testid="button-pip"
+                      title="Seek backward 10s"
+                      data-testid="button-rewind"
                     >
-                      <PictureInPicture2 size={sizes.iconSmall} />
+                      <Rewind size={sizes.iconSmall} />
                     </button>
-                  )}
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      data-testid="button-play-pause"
+                    >
+                      {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); seekForward(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      title="Seek forward 10s"
+                      data-testid="button-forward"
+                    >
+                      <FastForward size={sizes.iconSmall} />
+                    </button>
+                  </div>
                   
-                  <button 
-                    onClick={handleSettingsToggle}
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Settings"
-                    data-testid="button-settings"
-                  >
-                    <Settings size={sizes.iconSmall} />
-                  </button>
+                  <div className="flex-1 min-w-4"></div>
                   
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Fullscreen"
-                    data-testid="button-fullscreen"
-                  >
-                    {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {document.pictureInPictureEnabled && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                        className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                        title="Picture-in-picture"
+                        data-testid="button-pip"
+                      >
+                        <PictureInPicture2 size={sizes.iconSmall} />
+                      </button>
+                    )}
+                    
+                    <button 
+                      onClick={handleSettingsToggle}
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      title="Settings"
+                      data-testid="button-settings"
+                    >
+                      <Settings size={sizes.iconSmall} />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      title="Fullscreen"
+                      data-testid="button-fullscreen"
+                    >
+                      {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
+                    </button>
+                  </div>
                 </div>
               )}
               
