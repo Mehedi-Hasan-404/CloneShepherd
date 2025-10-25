@@ -56,7 +56,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const touchStartRef = useRef<{ x: number; time: number; } | null>(null);
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
-  const rafRef = useRef<number | null>(null);  // For throttling
+  const rafRef = useRef<number | null>(null);
 
   const isMobile = useIsMobile();
   const [isLandscape, setIsLandscape] = useState(false);
@@ -174,7 +174,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       error: null, 
       isPlaying: false, 
       showSettings: false,
-      showControls: false,  // Hide until success
+      showControls: false,
     }));
 
     loadingTimeoutRef.current = setTimeout(() => {
@@ -223,10 +223,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               language: track.lang || 'unknown'
             }));
           } else {
-            // Fallback: Assume single audio from variants
             audioTracks = [{ id: 0, label: 'Default', language: 'und' }];
           }
-          console.log('HLS Audio Tracks:', audioTracks);  // Debug
           
           video.muted = muted;
           if (autoPlay) video.play().catch(console.warn);
@@ -298,74 +296,64 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         streaming: { 
           bufferingGoal: 15, 
           rebufferingGoal: 8, 
-          bufferBehind: 30,  // Larger for live
+          bufferBehind: 30,
           retryParameters: { timeout: 8000, maxAttempts: 3, baseDelay: 1000, backoffFactor: 2 },
           useNativeHlsOnSafari: true,
-          // Live-specific: Handle infinite duration and time-shifting
           jumpLargeGaps: true,
           inbandTextTracks: true,
         },
         manifest: {
           retryParameters: { timeout: 8000, maxAttempts: 3, baseDelay: 1000, backoffFactor: 2 },
           dash: {
-            clockSyncUri: '',  // Set if MPD has <UTCTiming> scheme
+            clockSyncUri: '',
             ignoreDrmInfo: false,
-            // For live time manifests: Enable segment availability
             sequenceMode: true,
-            timeShiftBufferDepth: 60,  // 60s DVR window; adjust based on manifest
+            timeShiftBufferDepth: 60,
           },
         },
         abr: {
           enabled: true,
           defaultBandwidthEstimate: 1500000,
-          bandwidthUpgradeSeconds: 5,  // Slower for live stability
+          bandwidthUpgradeSeconds: 5,
           bandwidthDowngradeSeconds: 10,
         },
         drm: {
           retryParameters: { timeout: 5000, maxAttempts: 2 },
-          servers: {},  // Populated below if needed
-          advanced: {},  // For token-based
+          servers: {},
+          advanced: {},
         },
         networking: {
-          // Add auth token to all requests if detected
           requestFilter: drmInfo && drmInfo.token ? (type: any, request: any) => {
             request.headers['Authorization'] = `Bearer ${drmInfo.token}`;
-            // Or query param: request.uris[0] += `?token=${drmInfo.token}`;
           } : undefined,
         },
       });
 
-      // Enhanced DRM: Handle ClearKey with token (license server) or direct key
       if (drmInfo) {
         if (drmInfo.scheme === 'clearkey') {
           if (drmInfo.license && drmInfo.license.includes(':')) {
-            // Direct keyId:key (hex, no 0x prefix)
             const [keyId, key] = drmInfo.license.split(':');
             player.configure({ drm: { clearKeys: { [keyId]: key } } });
           } else if (drmInfo.token) {
-            // Token-based: Assume POST to license server (adjust URL)
             player.configure({
               drm: {
-                servers: { 'com.widevine.alpha': 'https://your-license-server.com/clearkey' },  // Replace with actual
+                servers: { 'com.widevine.alpha': 'https://your-license-server.com/clearkey' },
                 advanced: {
                   'com.widevine.alpha': {
-                    // Token in request body
-                    requestType: 1,  // License request
-                    serverCertificate: undefined,  // If needed
+                    requestType: 1,
+                    serverCertificate: undefined,
                   },
                 },
               },
             });
-            // Filter to add token to license request
             player.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
               if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
                 request.headers['Authorization'] = `Bearer ${drmInfo.token}`;
-                request.body = JSON.stringify({ kids: [], type: 'temporary' });  // Adjust for your server
+                request.body = JSON.stringify({ kids: [], type: 'temporary' });
               }
             });
           }
         } else {
-          // Other schemes (e.g., Widevine): Add server URL from drmInfo
           if (drmInfo.licenseServer) {
             player.configure({ drm: { servers: { [drmInfo.scheme]: drmInfo.licenseServer } } });
           }
@@ -376,7 +364,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         const errorCode = event.detail.code;
         let errorMessage = `Stream error (${errorCode})`;
-        console.error('Shaka Error:', event.detail);  // Log full details
         if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - retrying...';
         else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Manifest parse failed - check live config';
         else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - verify keys/token';
@@ -387,7 +374,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           error: errorMessage, 
           showControls: false 
         }));
-        // Auto-retry for recoverable (e.g., network)
         if (errorCode >= 6000 && errorCode < 7000) {
           setTimeout(() => handleRetry(), 2000);
         }
@@ -410,7 +396,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           language: audioInfo.language || 'unknown'
         }));
       } else {
-        // Fallback: Check if variants have multiple audio roles
         const variants = player.getVariantTracks();
         const uniqueAudios = [...new Set(variants.map((v: any) => v.audioRoles ? v.audioRoles.join(',') : 'main'))];
         if (uniqueAudios.length > 1) {
@@ -423,7 +408,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           audioTracks = [{ id: 0, label: 'Default', language: 'und' }];
         }
       }
-      console.log('Shaka Audio Tracks:', audioTracks);  // Debug
       
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
@@ -446,7 +430,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       startControlsTimer();
       return () => player.removeEventListener('error', onError);
     } catch (error) { 
-      console.error('Shaka Init Error:', error);
       throw error; 
     }
   };
@@ -491,15 +474,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const formatTime = (time: number): string => {
-    if (!isFinite(time) || time <= 0 || playerState.isLive) return "LIVE";
+    if (!isFinite(time) || time <= 0) return "0:00";
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
     if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-
-  const changeQuality = useCallback((qualityId: number) => {
+  
+const changeQuality = useCallback((qualityId: number) => {
     if (playerTypeRef.current === 'hls' && hlsRef.current) {
       hlsRef.current.currentLevel = qualityId;
     } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
@@ -542,9 +525,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const audioLanguages = shakaPlayerRef.current.getAudioLanguagesAndRoles();
       if (audioLanguages[trackId]) {
         shakaPlayerRef.current.selectAudioLanguage(audioLanguages[trackId].language);
-      } else {
-        // Fallback for single track
-        console.warn('Audio track switch not supported for this stream');
       }
     }
     setPlayerState(prev => ({ ...prev, currentAudioTrack: trackId, showControls: true, showSettings: false }));
@@ -562,8 +542,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, []);
 
   const handleRetry = useCallback(() => {
-    setPlayerState(prev => ({ ...prev, showControls: false }));  // Hide immediately
-    setTimeout(initializePlayer, 500);  // Debounce
+    setPlayerState(prev => ({ ...prev, showControls: false }));
+    setTimeout(initializePlayer, 500);
   }, [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
@@ -623,20 +603,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let timeout: NodeJS.Timeout;
     const checkOrientation = () => {
       clearTimeout(timeout);
-      timeout = setTimeout(() => {  // Debounce 250ms
+      timeout = setTimeout(() => {
         const isFS = !!document.fullscreenElement || (screen.orientation?.type?.includes('landscape') && document.visibilityState === 'visible');
         if (typeof window !== 'undefined') {
           const type = screen?.orientation?.type || '';
           setIsLandscape(type.includes('landscape') || window.innerWidth > window.innerHeight);
         }
-        setPlayerState(prev => ({ ...prev, isFullscreen: isFS }));  // Update state
+        setPlayerState(prev => ({ ...prev, isFullscreen: isFS }));
       }, 250);
     };
     
     checkOrientation();
     window.addEventListener('orientationchange', checkOrientation);
     window.addEventListener('resize', checkOrientation);
-    window.addEventListener('fullscreenchange', checkOrientation);  // Add this
+    window.addEventListener('fullscreenchange', checkOrientation);
     
     return () => {
       window.removeEventListener('orientationchange', checkOrientation);
@@ -646,9 +626,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
-  // Update quality on ABR changes
   useEffect(() => {
-    const interval = setInterval(updateCurrentQualityHeight, 2000);  // Poll every 2s for ABR
+    const interval = setInterval(updateCurrentQualityHeight, 2000);
     return () => clearInterval(interval);
   }, [updateCurrentQualityHeight]);
 
@@ -717,12 +696,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const newTime = calculateNewTime(e.clientX); if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
   
-  // Touch handlers for seekbar
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
     const video = videoRef.current;
-    if (!video || !isFinite(video.duration) || video.duration <= 0 || playerState.isLive) return;  // Disable drag for live
+    if (!video || !isFinite(video.duration) || video.duration <= 0 || playerState.isLive) return;
     wasPlayingBeforeSeekRef.current = !video.paused;
     const rect = progressRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -740,9 +718,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const rect = progressRef.current?.getBoundingClientRect();
       if (!rect) return;
       const touch = e.touches[0];
-      const deltaX = touch.clientX - rect.left - touchStartRef.current.x;
-      const percentage = Math.max(0, Math.min(1, (touchStartRef.current.x + deltaX) / rect.width));
-      const newTime = percentage * videoRef.current?.duration || 0;
+      const deltaX = touch.clientX - rect.left - touchStartRef.current!.x;
+      const percentage = Math.max(0, Math.min(1, (touchStartRef.current!.x + deltaX) / rect.width));
+      const newTime = percentage * (videoRef.current?.duration || 0);
       setPlayerState(prev => ({ ...prev, currentTime: newTime }));
       seekTimeRef.current = newTime;
     });
@@ -785,9 +763,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
     if (playerState.isLive && shakaPlayerRef.current) {
-      // Shaka live: Seek relative to live edge
       const liveEdge = shakaPlayerRef.current.getPlayheadTimeAsDate();
-      const newTime = new Date(liveEdge.getTime() - 10000);  // -10s
+      const newTime = new Date(liveEdge.getTime() - 10000);
       shakaPlayerRef.current.seek(newTime);
     } else {
       video.currentTime = Math.max(0, video.currentTime - 10);
@@ -800,10 +777,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
     if (playerState.isLive && shakaPlayerRef.current) {
-      // Shaka live: Seek forward toward live edge (+10s)
       const liveEdge = shakaPlayerRef.current.getPlayheadTimeAsDate();
       const currentTime = shakaPlayerRef.current.getPlayheadTimeAsDate();
-      const newTime = new Date(Math.min(liveEdge.getTime(), currentTime.getTime() + 10000));  // Clamp to live edge
+      const newTime = new Date(Math.min(liveEdge.getTime(), currentTime.getTime() + 10000));
       shakaPlayerRef.current.seek(newTime);
     } else {
       video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
@@ -918,7 +894,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [handleDragMove, handleDragEnd]);
 
-  // Global touch end for seekbar
   useEffect(() => {
     const handleGlobalTouchEnd = () => {
       if (touchStartRef.current) handleTouchEnd();
@@ -930,7 +905,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 && !playerState.isLive ? (playerState.currentTime / playerState.duration) * 100 : playerState.isLive ? 100 : 0;
 
   const getControlSizes = () => {
-    const isTablet = isMobile && window.innerWidth > 768;  // New: Tablet fallback
+    const isTablet = isMobile && window.innerWidth > 768;
     const isFullscreenLandscape = playerState.isFullscreen && isLandscape;
     const isMobileLandscape = isMobile && !isTablet && isLandscape;
     const isMobilePortrait = isMobile && !isTablet && !isLandscape;
@@ -959,7 +934,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         centerButtonClass: 'w-20 h-20',
         centerIcon: 32,
         paddingClass: 'p-3',
-        gapClass: 'gap-2',  // Smaller gap to prevent wrap
+        gapClass: 'gap-2',
         textClass: 'text-base',
         progressBarClass: 'h-1.5',
         progressThumbClass: 'w-4 h-4',
@@ -1087,115 +1062,110 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div className={`flex items-center ${sizes.gapClass} flex-nowrap justify-between flex-1 min-h-[40px]`}>
               {!isMobile && (
                 <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0`}>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
-                    data-testid="button-volume"
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass}`}
+                      data-testid="button-volume"
+                    >
+                      {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : volume > 50 ? <Volume2 size={sizes.iconSmall} /> : <Volume1 size={sizes.iconSmall} />}
+                    </button>
+                    
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={volume}
+                      onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                      className={`
+                        w-20 ${sizes.progressBarClass}
+                        bg-white/30 rounded-full appearance-none cursor-pointer
+                        [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
+                        [&::-webkit-slider-thumb]:rounded-full
+                        [&::-webkit-slider-thumb]:bg-white
+                        [&::-moz-range-thumb]:${sizes.progressThumbClass}
+                        [&::-moz-range-thumb]:rounded-full
+                        [&::-moz-range-thumb]:bg-white
+                        [&::-moz-range-thumb]:border-0
+                      `}
+                      data-testid="slider-volume"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  
+                  <div
+                    className={`text-white ${sizes.textClass} whitespace-nowrap flex-shrink-0 mx-2`}
+                    data-testid="text-time"
                   >
-                    {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : volume > 50 ? <Volume2 size={sizes.iconSmall} /> : <Volume1 size={sizes.iconSmall} />}
+                    {playerState.isLive ? (
+                      <span className="px-2 py-1 bg-red-600 rounded text-xs font-semibold">LIVE</span>
+                    ) : (
+                      <>{formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}</>
+                    )}
+                  </div>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    title="Seek backward 10s"
+                    data-testid="button-rewind"
+                  >
+                    <Rewind size={sizes.iconSmall} />
                   </button>
                   
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                    className={`
-                      flex-1 min-w-0 ${sizes.progressBarClass}
-                      bg-white/30 rounded-full appearance-none cursor-pointer
-                      [&::-webkit-slider-thumb]:appearance-none
-                      [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
-                      [&::-webkit-slider-thumb]:rounded-full
-                      [&::-webkit-slider-thumb]:bg-white
-                      [&::-moz-range-thumb]:${sizes.progressThumbClass}
-                      [&::-moz-range-thumb]:rounded-full
-                      [&::-moz-range-thumb]:bg-white
-                      [&::-moz-range-thumb]:border-0
-                    `}
-                    data-testid="slider-volume"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-                
-                <div
-                  className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-2 min-w-0`}
-                  data-testid="text-time"
-                >
-                  {/* LIVE streams */}
-                  {playerState.isLive ? (
-                    <>LIVE</>
-                  ) : (
-                    /* VOD – show current / total */
-                    <>
-                      {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                    </>
-                  )}
-                </div>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  title="Seek backward 10s"
-                  data-testid="button-rewind"
-                >
-                  <Rewind size={sizes.iconSmall} />
-                </button>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-play-pause"
-                >
-                  {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
-                </button>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  title="Seek forward 10s"
-                  data-testid="button-forward"
-                >
-                  <FastForward size={sizes.iconSmall} />
-                </button>
-                
-                <div className="flex-1"></div>
-                
-                {document.pictureInPictureEnabled && (
                   <button 
-                    onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                    onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
                     className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Picture-in-picture"
-                    data-testid="button-pip"
+                    data-testid="button-play-pause"
                   >
-                    <PictureInPicture2 size={sizes.iconSmall} />
+                    {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
                   </button>
-                )}
-                
-                <button 
-                  onClick={handleSettingsToggle}
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  title="Settings"
-                  data-testid="button-settings"
-                >
-                  <Settings size={sizes.iconSmall} />
-                </button>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  title="Fullscreen"
-                  data-testid="button-fullscreen"
-                >
-                  {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
-                </button>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); seekForward(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    title="Seek forward 10s"
+                    data-testid="button-forward"
+                  >
+                    <FastForward size={sizes.iconSmall} />
+                  </button>
+                  
+                  <div className="flex-1"></div>
+                  
+                  {document.pictureInPictureEnabled && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      title="Picture-in-picture"
+                      data-testid="button-pip"
+                    >
+                      <PictureInPicture2 size={sizes.iconSmall} />
+                    </button>
+                  )}
+                  
+                  <button 
+                    onClick={handleSettingsToggle}
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    title="Settings"
+                    data-testid="button-settings"
+                  >
+                    <Settings size={sizes.iconSmall} />
+                  </button>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    title="Fullscreen"
+                    data-testid="button-fullscreen"
+                  >
+                    {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
+                  </button>
                 </div>
               )}
               
               {isMobile && (
                 <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0 flex-nowrap justify-between`}>
-                <div className="flex items-center gap-2 flex-shrink-0">
                   <button 
                     onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
                     className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
@@ -1204,88 +1174,61 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : <Volume2 size={sizes.iconSmall} />}
                   </button>
                   
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                    className={`
-                      flex-1 min-w-0 ${sizes.progressBarClass}
-                      bg-white/30 rounded-full appearance-none cursor-pointer
-                      [&::-webkit-slider-thumb]:appearance-none
-                      [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
-                      [&::-webkit-slider-thumb]:rounded-full
-                      [&::-webkit-slider-thumb]:bg-white
-                      [&::-moz-range-thumb]:${sizes.progressThumbClass}
-                      [&::-moz-range-thumb]:rounded-full
-                      [&::-moz-range-thumb]:bg-white
-                      [&::-moz-range-thumb]:border-0
-                    `}
-                    data-testid="slider-volume-mobile"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-                
-                <div
-                  className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-1 min-w-0`}
-                  data-testid="text-time-mobile"
-                >
-                  {/* LIVE streams */}
-                  {playerState.isLive ? (
-                    <>LIVE</>
-                  ) : (
-                    /* VOD – show current / total */
-                    <>
-                      {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                    </>
-                  )}
-                </div>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-rewind-mobile"
-                >
-                  <Rewind size={sizes.iconSmall} />
-                </button>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-play-pause-mobile"
-                >
-                  {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
-                </button>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); seekForward(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-forward-mobile"
-                >
-                  <FastForward size={sizes.iconSmall} />
-                </button>
-                
-                <div className="flex-1"></div>
-                
-                {document.pictureInPictureEnabled && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); togglePip(); }} 
-                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                    title="Picture-in-picture"
-                    data-testid="button-pip-mobile"
+                  <div
+                    className={`text-white ${sizes.textClass} whitespace-nowrap flex-shrink-0 mx-1`}
+                    data-testid="text-time-mobile"
                   >
-                    <PictureInPicture2 size={sizes.iconSmall} />
+                    {playerState.isLive ? (
+                      <span className="px-1.5 py-0.5 bg-red-600 rounded text-xs font-semibold">LIVE</span>
+                    ) : (
+                      <>{formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}</>
+                    )}
+                  </div>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    data-testid="button-rewind-mobile"
+                  >
+                    <Rewind size={sizes.iconSmall} />
                   </button>
-                )}
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-fullscreen-mobile"
-                >
-                  {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
-                </button>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    data-testid="button-play-pause-mobile"
+                  >
+                    {playerState.isPlaying ? <Pause size={sizes.iconMedium} /> : <Play size={sizes.iconMedium} />}
+                  </button>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); seekForward(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    data-testid="button-forward-mobile"
+                  >
+                    <FastForward size={sizes.iconSmall} />
+                  </button>
+                  
+                  <div className="flex-1"></div>
+                  
+                  {document.pictureInPictureEnabled && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); togglePip(); }} 
+                      className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                      title="Picture-in-picture"
+                      data-testid="button-pip-mobile"
+                    >
+                      <PictureInPicture2 size={sizes.iconSmall} />
+                    </button>
+                  )}
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    data-testid="button-fullscreen-mobile"
+                  >
+                    {playerState.isFullscreen ? <Minimize size={sizes.iconSmall} /> : <Maximize size={sizes.iconSmall} />}
+                  </button>
                 </div>
               )}
             </div>
