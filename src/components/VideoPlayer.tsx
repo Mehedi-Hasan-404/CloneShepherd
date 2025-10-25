@@ -53,6 +53,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const lastActivityRef = useRef<number>(Date.now());
 
   const dragStartRef = useRef<{ isDragging: boolean; } | null>(null);
+  const touchStartRef = useRef<{ x: number; time: number; } | null>(null);
   const wasPlayingBeforeSeekRef = useRef(false);
   const seekTimeRef = useRef(0);
 
@@ -83,6 +84,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentAudioTrack: -1,
     isSeeking: false,
     isPipActive: false,
+    isLive: false,
   });
 
   const detectStreamType = useCallback((url: string): { type: 'hls' | 'dash' | 'native'; cleanUrl: string; drmInfo?: any } => {
@@ -97,9 +99,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const params = new URLSearchParams(drmParams);
         const drmScheme = params.get('drmScheme');
         const drmLicense = params.get('drmLicense');
+        const token = params.get('token') || params.get('authToken');
         
         if (drmScheme && drmLicense) {
-          drmInfo = { scheme: drmScheme, license: drmLicense };
+          drmInfo = { scheme: drmScheme, license: drmLicense, token };
+        } else if (token) {
+          drmInfo = { token };
         }
       }
     }
@@ -130,6 +135,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       shakaPlayerRef.current.destroy();
       shakaPlayerRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.src = '';
+      videoRef.current.load();
+    }
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
     }
@@ -138,7 +148,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const initializePlayer = useCallback(async () => {
     if (!streamUrl || !videoRef.current) {
-      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false }));
+      setPlayerState(prev => ({ ...prev, error: 'No stream URL provided', isLoading: false, showControls: false }));
       return;
     }
 
@@ -155,7 +165,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        setPlayerState(prev => ({ ...prev, isLoading: false, error: "Stream took too long to load. Please try again." }));
+        setPlayerState(prev => ({ ...prev, isLoading: false, error: "Stream took too long to load. Please try again.", showControls: false }));
         destroyPlayer();
       }
     }, PLAYER_LOAD_TIMEOUT);
@@ -174,7 +184,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     } catch (error) {
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player' }));
+      setPlayerState(prev => ({ ...prev, isLoading: false, error: error instanceof Error ? error.message : 'Failed to initialize player', showControls: false }));
     }
   }, [streamUrl, autoPlay, muted, destroyPlayer, detectStreamType]);
 
@@ -199,7 +209,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           
           video.muted = muted;
           if (autoPlay) video.play().catch(console.warn);
-          setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: levels, availableAudioTracks: audioTracks, currentQuality: hls.currentLevel, currentAudioTrack: hls.audioTrack, isMuted: video.muted, isPlaying: true, showControls: true }));
+          setPlayerState(prev => ({ 
+            ...prev, 
+            isLoading: false, 
+            error: null, 
+            availableQualities: levels, 
+            availableAudioTracks: audioTracks, 
+            currentQuality: hls.currentLevel, 
+            currentAudioTrack: hls.audioTrack, 
+            isMuted: video.muted, 
+            isPlaying: true, 
+            showControls: true,
+            isLive: hls.liveSyncPosition !== null,
+            duration: hls.liveSyncPosition !== null ? Infinity : video.duration || 0,
+          }));
           startControlsTimer();
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
@@ -209,7 +232,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
               case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-              default: setPlayerState(prev => ({ ...prev, isLoading: false, error: `HLS Error: ${data.details}` })); destroyPlayer(); break;
+              default: 
+                setPlayerState(prev => ({ 
+                  ...prev, 
+                  isLoading: false, 
+                  error: `HLS Error: ${data.details}`,
+                  showControls: false 
+                })); 
+                destroyPlayer(); 
+                break;
             }
           }
         });
@@ -238,19 +269,103 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (shakaPlayerRef.current) await shakaPlayerRef.current.destroy();
       const player = new Player(video);
       shakaPlayerRef.current = player;
-      player.configure({ streaming: { bufferingGoal: 15, rebufferingGoal: 8, bufferBehind: 15, retryParameters: { timeout: 4000, maxAttempts: 2, baseDelay: 300, backoffFactor: 1.3, fuzzFactor: 0.2 }, useNativeHlsOnSafari: true }, manifest: { retryParameters: { timeout: 4000, maxAttempts: 2, baseDelay: 300, backoffFactor: 1.3, fuzzFactor: 0.2 }, dash: { clockSyncUri: '' } }, abr: { enabled: true, defaultBandwidthEstimate: 1500000, bandwidthUpgradeSeconds: 3, bandwidthDowngradeSeconds: 6 } });
-      if (drmInfo && drmInfo.scheme === 'clearkey' && drmInfo.license && drmInfo.license.includes(':')) {
-        const [keyId, key] = drmInfo.license.split(':');
-        player.configure({ drm: { clearKeys: { [keyId]: key } } });
+      player.configure({ 
+        streaming: { 
+          bufferingGoal: 15, 
+          rebufferingGoal: 8, 
+          bufferBehind: 30,  // Larger for live
+          retryParameters: { timeout: 8000, maxAttempts: 3, baseDelay: 1000, backoffFactor: 2 },
+          useNativeHlsOnSafari: true,
+          // Live-specific: Handle infinite duration and time-shifting
+          jumpLargeGaps: true,
+          inbandTextTracks: true,
+        },
+        manifest: {
+          retryParameters: { timeout: 8000, maxAttempts: 3, baseDelay: 1000, backoffFactor: 2 },
+          dash: {
+            clockSyncUri: '',  // Set if MPD has <UTCTiming> scheme
+            ignoreDrmInfo: false,
+            // For live time manifests: Enable segment availability
+            sequenceMode: true,
+            timeShiftBufferDepth: 60,  // 60s DVR window; adjust based on manifest
+          },
+        },
+        abr: {
+          enabled: true,
+          defaultBandwidthEstimate: 1500000,
+          bandwidthUpgradeSeconds: 5,  // Slower for live stability
+          bandwidthDowngradeSeconds: 10,
+        },
+        drm: {
+          retryParameters: { timeout: 5000, maxAttempts: 2 },
+          servers: {},  // Populated below if needed
+          advanced: {},  // For token-based
+        },
+        networking: {
+          // Add auth token to all requests if detected
+          requestFilter: drmInfo && drmInfo.token ? (type: any, request: any) => {
+            request.headers['Authorization'] = `Bearer ${drmInfo.token}`;
+            // Or query param: request.uris[0] += `?token=${drmInfo.token}`;
+          } : undefined,
+        },
+      });
+
+      // Enhanced DRM: Handle ClearKey with token (license server) or direct key
+      if (drmInfo) {
+        if (drmInfo.scheme === 'clearkey') {
+          if (drmInfo.license && drmInfo.license.includes(':')) {
+            // Direct keyId:key (hex, no 0x prefix)
+            const [keyId, key] = drmInfo.license.split(':');
+            player.configure({ drm: { clearKeys: { [keyId]: key } } });
+          } else if (drmInfo.token) {
+            // Token-based: Assume POST to license server (adjust URL)
+            player.configure({
+              drm: {
+                servers: { 'com.widevine.alpha': 'https://your-license-server.com/clearkey' },  // Replace with actual
+                advanced: {
+                  'com.widevine.alpha': {
+                    // Token in request body
+                    requestType: 1,  // License request
+                    serverCertificate: undefined,  // If needed
+                  },
+                },
+              },
+            });
+            // Filter to add token to license request
+            player.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
+              if (type === shaka.net.NetworkingEngine.RequestType.LICENSE) {
+                request.headers['Authorization'] = `Bearer ${drmInfo.token}`;
+                request.body = JSON.stringify({ kids: [], type: 'temporary' });  // Adjust for your server
+              }
+            });
+          }
+        } else {
+          // Other schemes (e.g., Widevine): Add server URL from drmInfo
+          if (drmInfo.licenseServer) {
+            player.configure({ drm: { servers: { [drmInfo.scheme]: drmInfo.licenseServer } } });
+          }
+        }
       }
+
       const onError = (event: any) => {
         if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
         const errorCode = event.detail.code;
         let errorMessage = `Stream error (${errorCode})`;
-        if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - please check your connection';
-        else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Media format not supported';
-        else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - content may be protected';
-        setPlayerState(prev => ({ ...prev, isLoading: false, error: errorMessage }));
+        console.error('Shaka Error:', event.detail);  // Log full details
+        if (errorCode >= 6000 && errorCode < 7000) errorMessage = 'Network error - retrying...';
+        else if (errorCode >= 4000 && errorCode < 5000) errorMessage = 'Manifest parse failed - check live config';
+        else if (errorCode >= 1000 && errorCode < 2000) errorMessage = 'DRM error - verify keys/token';
+        else if (errorCode === 1003) errorMessage = 'No playable streams - invalid MPD';
+        setPlayerState(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: errorMessage, 
+          showControls: false 
+        }));
+        // Auto-retry for recoverable (e.g., network)
+        if (errorCode >= 6000 && errorCode < 7000) {
+          setTimeout(() => handleRetry(), 2000);
+        }
         destroyPlayer();
       };
       player.addEventListener('error', onError);
@@ -269,10 +384,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, availableQualities: qualities, availableSubtitles: subtitles, availableAudioTracks: audioTracks, currentQuality: -1, isMuted: video.muted, isPlaying: true, showControls: true }));
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: null, 
+        availableQualities: qualities, 
+        availableSubtitles: subtitles, 
+        availableAudioTracks: audioTracks, 
+        currentQuality: -1, 
+        isMuted: video.muted, 
+        isPlaying: true, 
+        showControls: true,
+        isLive: player.isLive(),
+        duration: player.isLive() ? Infinity : video.duration || 0,
+      }));
       startControlsTimer();
       return () => player.removeEventListener('error', onError);
-    } catch (error) { throw error; }
+    } catch (error) { 
+      console.error('Shaka Init Error:', error);
+      throw error; 
+    }
   };
 
   const initNativePlayer = (url: string, video: HTMLVideoElement) => {
@@ -282,13 +413,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
       video.muted = muted;
       if (autoPlay) video.play().catch(console.warn);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: null, isMuted: video.muted, isPlaying: true, showControls: true }));
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: null, 
+        isMuted: video.muted, 
+        isPlaying: true, 
+        showControls: true,
+        isLive: false,
+        duration: video.duration || 0,
+      }));
       startControlsTimer();
     };
     const onError = () => {
       if (!isMountedRef.current) return;
       if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-      setPlayerState(prev => ({ ...prev, isLoading: false, error: 'Failed to load stream with native player' }));
+      setPlayerState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: 'Failed to load stream with native player',
+        showControls: false,
+      }));
     };
     video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
     video.addEventListener('error', onError, { once: true });
@@ -299,7 +444,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const formatTime = (time: number): string => {
-    if (!isFinite(time) || time <= 0) return "0:00";
+    if (!isFinite(time) || time <= 0) return "LIVE";
     const hours = Math.floor(time / 3600);
     const minutes = Math.floor((time % 3600) / 60);
     const seconds = Math.floor(time % 60);
@@ -366,7 +511,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     lastActivityRef.current = Date.now();
   }, []);
 
-  const handleRetry = useCallback(() => initializePlayer(), [initializePlayer]);
+  const handleRetry = useCallback(() => {
+    setPlayerState(prev => ({ ...prev, showControls: false }));  // Hide immediately
+    setTimeout(initializePlayer, 500);  // Debounce
+  }, [initializePlayer]);
 
   const startControlsTimer = useCallback(() => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -421,22 +569,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [playerState.showSettings, playerState.isPlaying, startControlsTimer]);
 
   useEffect(() => {
+    let timeout: NodeJS.Timeout;
     const checkOrientation = () => {
-      if (typeof window !== 'undefined' && window.screen?.orientation) {
-        const type = window.screen.orientation.type;
-        setIsLandscape(type.includes('landscape'));
-      } else {
-        setIsLandscape(window.innerWidth > window.innerHeight);
-      }
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {  // Debounce 250ms
+        const isFS = !!document.fullscreenElement || (screen.orientation?.type?.includes('landscape') && document.visibilityState === 'visible');
+        if (typeof window !== 'undefined') {
+          const type = screen?.orientation?.type || '';
+          setIsLandscape(type.includes('landscape') || window.innerWidth > window.innerHeight);
+        }
+        setPlayerState(prev => ({ ...prev, isFullscreen: isFS }));  // Update state
+      }, 250);
     };
     
     checkOrientation();
     window.addEventListener('orientationchange', checkOrientation);
     window.addEventListener('resize', checkOrientation);
+    window.addEventListener('fullscreenchange', checkOrientation);  // Add this
     
     return () => {
       window.removeEventListener('orientationchange', checkOrientation);
       window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('fullscreenchange', checkOrientation);
+      clearTimeout(timeout);
     };
   }, []);
 
@@ -464,23 +619,64 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const calculateNewTime = useCallback((clientX: number): number | null => {
-    const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
-  }, []);
+    const video = videoRef.current; const progressBar = progressRef.current; if (!video || !progressBar || !isFinite(video.duration) || video.duration <= 0 || playerState.isLive) return null; const rect = progressBar.getBoundingClientRect(); const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width)); const percentage = clickX / rect.width; return percentage * video.duration;
+  }, [playerState.isLive]);
+  
   const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); const video = videoRef.current; if (!video || !isFinite(video.duration) || video.duration <= 0) return; wasPlayingBeforeSeekRef.current = !video.paused; dragStartRef.current = { isDragging: true }; setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); video.pause(); lastActivityRef.current = Date.now();
-  }, []);
+    e.stopPropagation(); const video = videoRef.current; if (!video || !isFinite(video.duration) || video.duration <= 0 || playerState.isLive) return; wasPlayingBeforeSeekRef.current = !video.paused; dragStartRef.current = { isDragging: true }; setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); video.pause(); lastActivityRef.current = Date.now();
+  }, [playerState.isLive]);
+  
   const handleDragMove = useCallback((e: MouseEvent) => {
     if (!dragStartRef.current?.isDragging) return; const newTime = calculateNewTime(e.clientX); if (newTime !== null) { setPlayerState(prev => ({ ...prev, currentTime: newTime, showControls: true })); seekTimeRef.current = newTime; } lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
+  
   const handleDragEnd = useCallback(() => {
     if (!dragStartRef.current?.isDragging) return; const video = videoRef.current; if (video) { video.currentTime = seekTimeRef.current; if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error); } dragStartRef.current = null; setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !video?.paused, showControls: true })); lastActivityRef.current = Date.now();
   }, []);
+  
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const newTime = calculateNewTime(e.clientX); if (newTime !== null && videoRef.current) videoRef.current.currentTime = newTime; setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
   }, [calculateNewTime]);
+  
+  // Touch handlers for seekbar
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    const video = videoRef.current;
+    if (!video || !isFinite(video.duration) || video.duration <= 0 || playerState.isLive) return;  // Disable drag for live
+    wasPlayingBeforeSeekRef.current = !video.paused;
+    const rect = progressRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX - rect.left, time: (touch.clientX - rect.left) / rect.width * video.duration };
+    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true }));
+    video.pause();
+  }, [playerState.isLive]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    e.stopPropagation();
+    const rect = progressRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - rect.left - touchStartRef.current.x;
+    const percentage = Math.max(0, Math.min(1, (touchStartRef.current.x + deltaX) / rect.width));
+    const newTime = percentage * videoRef.current?.duration || 0;
+    setPlayerState(prev => ({ ...prev, currentTime: newTime }));
+    seekTimeRef.current = newTime;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!touchStartRef.current || !videoRef.current) return;
+    videoRef.current.currentTime = seekTimeRef.current;
+    if (wasPlayingBeforeSeekRef.current) videoRef.current.play().catch(console.error);
+    touchStartRef.current = null;
+    setPlayerState(prev => ({ ...prev, isSeeking: false, isPlaying: !videoRef.current?.paused }));
+  }, []);
+  
   const togglePlay = useCallback(() => {
     const video = videoRef.current; if (!video) return; if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) { if (video.paused) shakaPlayerRef.current.play().catch(console.error); else shakaPlayerRef.current.pause(); } else { if (video.paused) video.play().catch(console.error); else video.pause(); } setPlayerState(prev => ({ ...prev, showControls: true })); lastActivityRef.current = Date.now();
   }, []);
+  
   const toggleMute = useCallback(() => {
     const video = videoRef.current; 
     if (video) { 
@@ -503,21 +699,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const seekBackward = useCallback(() => {
     const video = videoRef.current;
-    if (video) {
+    if (!video) return;
+    if (playerState.isLive && shakaPlayerRef.current) {
+      // Shaka live: Seek relative to live edge
+      const liveEdge = shakaPlayerRef.current.getPlayheadTimeAsDate();
+      const newTime = new Date(liveEdge.getTime() - 10000);  // -10s
+      shakaPlayerRef.current.seek(newTime);
+    } else {
       video.currentTime = Math.max(0, video.currentTime - 10);
-      setPlayerState(prev => ({ ...prev, showControls: true }));
-      lastActivityRef.current = Date.now();
     }
-  }, []);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, [playerState.isLive]);
 
   const seekForward = useCallback(() => {
     const video = videoRef.current;
-    if (video) {
-      video.currentTime = Math.min(video.duration, video.currentTime + 10);
-      setPlayerState(prev => ({ ...prev, showControls: true }));
-      lastActivityRef.current = Date.now();
+    if (!video) return;
+    if (playerState.isLive && shakaPlayerRef.current) {
+      // Shaka live: Seek forward toward live edge (+10s)
+      const currentTime = shakaPlayerRef.current.getPlayheadTimeAsDate();
+      const newTime = new Date(Math.min(liveEdge.getTime(), currentTime.getTime() + 10000));  // Clamp to live edge
+      shakaPlayerRef.current.seek(newTime);
+    } else {
+      video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
     }
-  }, []);
+    setPlayerState(prev => ({ ...prev, showControls: true }));
+    lastActivityRef.current = Date.now();
+  }, [playerState.isLive]);
   
   const toggleFullscreen = useCallback(async () => {
     const container = containerRef.current;
@@ -594,14 +802,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const getCurrentQualityLabel = () => {
-    if (playerState.currentQuality === -1) return '720p';
+    if (playerState.currentQuality === -1) return 'Auto';
     const quality = playerState.availableQualities.find(q => q.id === playerState.currentQuality);
-    return quality ? `${quality.height}p` : '720p';
+    return quality ? `${quality.height}p` : 'Auto';
   };
 
   const getCurrentSpeedLabel = () => {
     const speed = videoRef.current?.playbackRate || 1;
-    return speed === 1 ? 'Normal' : `${speed}`;
+    return speed === 1 ? 'Normal' : `${speed}x`;
   };
 
   useEffect(() => {
@@ -619,12 +827,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [handleDragMove, handleDragEnd]);
 
-  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
+  const currentTimePercentage = isFinite(playerState.duration) && playerState.duration > 0 && !playerState.isLive ? (playerState.currentTime / playerState.duration) * 100 : playerState.isLive ? 100 : 0;
 
   const getControlSizes = () => {
+    const isTablet = isMobile && window.innerWidth > 768;  // New: Tablet fallback
     const isFullscreenLandscape = playerState.isFullscreen && isLandscape;
-    const isMobileLandscape = isMobile && isLandscape;
-    const isMobilePortrait = isMobile && !isLandscape;
+    const isMobileLandscape = isMobile && !isTablet && isLandscape;
+    const isMobilePortrait = isMobile && !isTablet && !isLandscape;
     
     if (isFullscreenLandscape) {
       return {
@@ -674,6 +883,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       };
     }
     
+    if (isTablet) {
+      return {
+        iconSmall: 22,
+        iconMedium: 26,
+        iconLarge: 28,
+        centerButtonClass: 'w-20 h-20',
+        centerIcon: 32,
+        paddingClass: 'p-3',
+        gapClass: 'gap-3',
+        textClass: 'text-base',
+        progressBarClass: 'h-1.5',
+        progressThumbClass: 'w-4 h-4',
+        containerPaddingClass: 'p-4'
+      };
+    }
+    
     return {
       iconSmall: 20,
       iconMedium: 24,
@@ -693,7 +918,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div ref={containerRef} className={`relative bg-black w-full h-full ${className}`} onMouseMove={handleMouseMove} onClick={handlePlayerClick}>
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline controls={false} />
+      <video ref={videoRef} className="w-full h-full object-cover" playsInline controls={false} />
       
       {playerState.isLoading && (
         <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center">
@@ -747,13 +972,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
         
-        <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass}`}>
+        <div className={`absolute bottom-0 left-0 right-0 ${sizes.containerPaddingClass} overflow-hidden`}>
           <div className="mb-2 md:mb-3">
-            <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick}>
+            <div ref={progressRef} className="relative h-2 py-2 -my-2 bg-transparent cursor-pointer group" onClick={handleProgressClick} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
               <div className={`absolute inset-x-0 top-1/2 -translate-y-1/2 ${sizes.progressBarClass} bg-white bg-opacity-30 rounded-full`}>
                 <div className="absolute top-0 left-0 h-full bg-white bg-opacity-50 rounded-full" style={{ width: isFinite(playerState.duration) && playerState.duration > 0 ? `${(playerState.buffered / playerState.duration) * 100}%` : '0%' }}/>
                 <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full" style={{ width: `${currentTimePercentage}%` }}/>
-                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${sizes.progressThumbClass} rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()}/>
+                <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${sizes.progressThumbClass} rounded-full bg-red-500 transition-all duration-150 ease-out ${playerState.isSeeking ? 'scale-150' : 'group-hover:scale-150'}`} style={{ left: `${currentTimePercentage}%` }} onMouseDown={handleDragStart} onClick={(e) => e.stopPropagation()} onTouchStart={handleTouchStart}/>
               </div>
             </div>
           </div>
@@ -783,7 +1008,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className={`text-white ${sizes.textClass} whitespace-nowrap`} data-testid="text-time">
+                <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate`} data-testid="text-time">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
@@ -858,7 +1083,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
               
               {isFinite(playerState.duration) && playerState.duration > 0 && (
-                <div className={`text-white ${sizes.textClass} whitespace-nowrap`} data-testid="text-time-mobile">
+                <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate`} data-testid="text-time-mobile">
                   {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                 </div>
               )}
@@ -1015,7 +1240,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      {speed === 1 ? 'Normal' : `${speed}`}
+                      {speed === 1 ? 'Normal' : `${speed}x`}
                     </button>
                   ))}
                 </div>
@@ -1256,7 +1481,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                           videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                       >
-                        {speed === 1 ? 'Normal' : `${speed}`}
+                        {speed === 1 ? 'Normal' : `${speed}x`}
                       </button>
                     ))}
                   </div>
@@ -1446,7 +1671,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         }`}
                         style={{ fontSize: '15px', fontWeight: 400 }}
                       >
-                        {speed === 1 ? 'Normal' : `${speed}`}
+                        {speed === 1 ? 'Normal' : `${speed}x`}
                       </button>
                     ))}
                   </div>
