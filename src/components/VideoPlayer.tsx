@@ -48,9 +48,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const isMountedRef = useRef(true);
-  const dragStartRef = useRef<{ isDragging: boolean }>({ isDragging: false });
-  const seekTimeRef = useRef<number>(0);
-  const wasPlayingBeforeSeekRef = useRef<boolean>(false);
 
   const [playerState, setPlayerState] = useState({
     isPlaying: false,
@@ -71,7 +68,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isFullscreen: false,
     isPipActive: false,
     showSettings: false,
-    isSeeking: false,
+    isSeeking: false, // New state to track if user is actively seeking
   });
 
   const isMobile = useIsMobile();
@@ -613,73 +610,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     initializePlayer(); // Re-initialize the player
   }, [initializePlayer]);
 
-  // --- Seeking Logic ---
-  const calculateNewTime = useCallback((clientX: number) => {
-    if (!containerRef.current) return 0;
-    const rect = containerRef.current.getBoundingClientRect();
-    const position = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const newTime = position * (videoRef.current?.duration || 0);
-    return isNaN(newTime) ? 0 : newTime;
-  }, []);
-
-  const handleDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation(); // Prevent triggering handlePlayerClick
+  // --- Seeking Logic (using range input) ---
+  const handleSeekStart = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !isFinite(video.duration) || video.duration <= 0) return;
-
-    wasPlayingBeforeSeekRef.current = !video.paused;
-    dragStartRef.current = { isDragging: true };
-    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); // Show controls during seek
-    video.pause(); // Pause video during drag
+    if (!video) return;
+    setPlayerState(prev => ({ ...prev, isSeeking: true, showControls: true })); // Mark seeking as true
     lastActivityRef.current = Date.now();
   }, []);
 
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    if (!dragStartRef.current?.isDragging) return;
-    const newTime = calculateNewTime(e.clientX);
-    if (isNaN(newTime)) return; // Guard against NaN
+  const handleSeekChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTime = parseFloat(e.target.value);
+    if (isNaN(newTime)) return;
+    setPlayerState(prev => ({ ...prev, currentTime: newTime })); // Update displayed time immediately
+    lastActivityRef.current = Date.now();
+  }, []);
 
-    seekTimeRef.current = newTime;
-    // Update the display time without changing the actual video time
-    setPlayerState(prev => ({ ...prev, currentTime: newTime }));
-  }, [calculateNewTime]);
-
-  const handleDragEnd = useCallback(() => {
-    if (!dragStartRef.current?.isDragging) return;
+  const handleSeekEnd = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newTime = parseFloat(e.target.value);
+    if (isNaN(newTime)) return;
     const video = videoRef.current;
     if (video) {
-      video.currentTime = seekTimeRef.current;
-      if (wasPlayingBeforeSeekRef.current) video.play().catch(console.error);
+      video.currentTime = newTime; // Seek to the new time
     }
-    dragStartRef.current = null;
-    setPlayerState(prev => ({
-      ...prev,
-      isSeeking: false,
-      isPlaying: !video?.paused,
-      showControls: true // Show controls after seeking
-    }));
+    setPlayerState(prev => ({ ...prev, isSeeking: false, showControls: true })); // Mark seeking as false
     lastActivityRef.current = Date.now();
-    if (playerState.isPlaying) { // Restart timer only if it was playing before
+    if (playerState.isPlaying) { // Restart timer only if it was playing
       startControlsTimer();
     }
   }, [playerState.isPlaying, startControlsTimer]);
-
-  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const newTime = calculateNewTime(e.clientX);
-    if (isNaN(newTime)) return; // Guard against NaN
-
-    const video = videoRef.current;
-    if (video) {
-      video.currentTime = newTime;
-      // Controls are shown implicitly by the click handler
-      // Or explicitly here if needed
-      setPlayerState(prev => ({ ...prev, showControls: true }));
-      lastActivityRef.current = Date.now();
-      if (playerState.isPlaying) { // Restart timer only if it was playing
-        startControlsTimer();
-      }
-    }
-  }, [playerState.isPlaying, startControlsTimer, calculateNewTime]);
 
   // --- Settings Logic ---
   const [expandedSettingItem, setExpandedSettingItem] = useState<'quality' | 'captions' | 'audio' | 'speed' | 'more' | null>(null);
@@ -772,26 +730,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   // --- Effects ---
-  useEffect(() => {
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (dragStartRef.current?.isDragging) handleDragMove(e);
-    };
-    const handleGlobalMouseUp = () => {
-      if (dragStartRef.current?.isDragging) handleDragEnd();
-    };
-
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-
-    // Cleanup function to remove global event listeners
-    return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-    };
-  }, [handleDragMove, handleDragEnd]);
+  // No more global mouse listeners needed for seeking
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -834,7 +773,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
 
     const handleTimeUpdate = () => {
-      if (!isMountedRef.current || !video || playerState.isSeeking) return; // Don't update time while seeking
+      // Update time only if not seeking (to avoid conflict with range input)
+      if (!isMountedRef.current || !video || playerState.isSeeking) return;
       const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
       setPlayerState(prev => ({
         ...prev,
@@ -891,6 +831,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // --- Render ---
   const progressPercentage = playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
   const bufferedPercentage = playerState.duration > 0 ? (playerState.buffered / playerState.duration) * 100 : 0;
+
+  // Calculate seek value for the range input, defaulting to 0 if duration is invalid
+  const seekValue = (playerState.duration > 0 && !isNaN(playerState.currentTime)) ? playerState.currentTime : 0;
+  const seekMax = playerState.duration > 0 ? playerState.duration : 100; // Default max to 100 if duration unknown
 
   return (
     <div
@@ -949,26 +893,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <div
           className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity duration-300 ${playerState.showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         >
-          {/* Progress Bar */}
+          {/* Progress Bar - Now using range input */}
           <div className="relative mb-2">
+            <input
+              type="range"
+              min="0"
+              max={seekMax}
+              value={seekValue}
+              onChange={handleSeekChange}
+              onMouseDown={handleSeekStart} // Start seeking when mouse button is pressed
+              onMouseUp={handleSeekEnd} // End seeking when mouse button is released
+              onTouchStart={handleSeekStart} // Also handle touch events for mobile
+              onTouchEnd={handleSeekEnd}
+              className="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-red-600 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
+            />
+            {/* Visual representation of progress and buffered */}
             <div
-              className="w-full h-2 bg-gray-700 rounded-full cursor-pointer overflow-hidden"
-              onClick={handleProgressClick}
-              onMouseDown={handleDragStart} // Enable dragging on the progress bar
-            >
-              <div
-                className="absolute top-0 left-0 h-full bg-gray-500" // Buffered color
-                style={{ width: `${bufferedPercentage}%` }}
-              ></div>
-              <div
-                className="absolute top-0 left-0 h-full bg-red-600" // Progress color
-                style={{ width: `${progressPercentage}%` }}
-              ></div>
-              <div
-                className="absolute top-1/2 w-3 h-3 bg-red-600 rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
-                style={{ left: `${progressPercentage}%` }}
-              ></div>
-            </div>
+              className="absolute top-0 left-0 h-2 bg-gray-500 pointer-events-none"
+              style={{ width: `${bufferedPercentage}%` }}
+            ></div>
+            <div
+              className="absolute top-0 left-0 h-2 bg-red-600 pointer-events-none"
+              style={{ width: `${progressPercentage}%` }}
+            ></div>
           </div>
 
           <div className="flex items-center gap-4">
@@ -1254,23 +1201,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </button>
           </div>
 
-          {/* Mobile Progress Bar */}
+          {/* Mobile Progress Bar - Now using range input */}
           <div
-            className="w-full h-1.5 bg-gray-700 rounded-full cursor-pointer mb-2 overflow-hidden"
-            onClick={handleProgressClick}
-            onMouseDown={handleDragStart} // Enable dragging on the progress bar for mobile too
+            className="w-full h-1.5 bg-gray-700 rounded-full mb-2 overflow-hidden"
           >
+            <input
+              type="range"
+              min="0"
+              max={seekMax}
+              value={seekValue}
+              onChange={handleSeekChange}
+              onMouseDown={handleSeekStart} // Start seeking when mouse button is pressed
+              onMouseUp={handleSeekEnd} // End seeking when mouse button is released
+              onTouchStart={handleSeekStart} // Also handle touch events for mobile
+              onTouchEnd={handleSeekEnd}
+              className="w-full h-1.5 bg-transparent appearance-none cursor-pointer absolute top-0 left-0 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-600 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-red-600 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
+            />
+            {/* Visual representation of progress and buffered */}
             <div
-              className="absolute top-0 left-0 h-full bg-gray-500" // Buffered color
+              className="absolute top-0 left-0 h-1.5 bg-gray-500 pointer-events-none"
               style={{ width: `${bufferedPercentage}%` }}
             ></div>
             <div
-              className="absolute top-0 left-0 h-full bg-red-600" // Progress color
+              className="absolute top-0 left-0 h-1.5 bg-red-600 pointer-events-none"
               style={{ width: `${progressPercentage}%` }}
-            ></div>
-            <div
-              className="absolute top-1/2 w-2 h-2 bg-red-600 rounded-full transform -translate-y-1/2 -translate-x-1/2 pointer-events-none"
-              style={{ left: `${progressPercentage}%` }}
             ></div>
           </div>
 
