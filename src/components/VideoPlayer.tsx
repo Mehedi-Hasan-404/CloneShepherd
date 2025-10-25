@@ -1,6 +1,6 @@
 // /src/components/VideoPlayer.tsx - Responsive Player with Desktop & Mobile Layouts
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Music } from 'lucide-react';
+import { Play, Pause, VolumeX, Volume2, Maximize, Minimize, Loader2, AlertCircle, RotateCcw, Settings, PictureInPicture2, Subtitles, Rewind, FastForward, ChevronRight, Volume1, Music, Check } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface VideoPlayerProps {
@@ -78,6 +78,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     buffered: 0,
     showSettings: false,
     currentQuality: -1, 
+    currentQualityHeight: 720,
     availableQualities: [] as QualityLevel[],
     availableSubtitles: [] as SubtitleTrack[],
     availableAudioTracks: [] as AudioTrack[],
@@ -145,6 +146,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       clearTimeout(loadingTimeoutRef.current);
     }
     playerTypeRef.current = null;
+  }, []);
+
+  const updateCurrentQualityHeight = useCallback(() => {
+    let height = 720;
+    if (playerTypeRef.current === 'hls' && hlsRef.current && hlsRef.current.currentLevel >= 0) {
+      const level = hlsRef.current.levels[hlsRef.current.currentLevel];
+      height = level?.height || 720;
+    } else if (playerTypeRef.current === 'shaka' && shakaPlayerRef.current) {
+      const activeTrack = shakaPlayerRef.current.getVariantTracks().find((t: any) => t.active);
+      height = activeTrack?.height || 720;
+    }
+    setPlayerState(prev => ({ ...prev, currentQualityHeight: height }));
   }, []);
 
   const initializePlayer = useCallback(async () => {
@@ -231,7 +244,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             isLive: hls.liveSyncPosition !== null,
             duration: hls.liveSyncPosition !== null ? Infinity : video.duration || 0,
           }));
+          updateCurrentQualityHeight();
           startControlsTimer();
+        });
+        hls.on(Hls.Events.LEVEL_SWITCHED, () => {
+          updateCurrentQualityHeight();
         });
         hls.on(Hls.Events.ERROR, (_, data) => {
           if (!isMountedRef.current) return;
@@ -425,6 +442,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isLive: player.isLive(),
         duration: player.isLive() ? Infinity : video.duration || 0,
       }));
+      updateCurrentQualityHeight();
       startControlsTimer();
       return () => player.removeEventListener('error', onError);
     } catch (error) { 
@@ -451,6 +469,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isLive: false,
         duration: video.duration || 0,
       }));
+      updateCurrentQualityHeight();
       startControlsTimer();
     };
     const onError = () => {
@@ -627,6 +646,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, []);
 
+  // Update quality on ABR changes
+  useEffect(() => {
+    const interval = setInterval(updateCurrentQualityHeight, 2000);  // Poll every 2s for ABR
+    return () => clearInterval(interval);
+  }, [updateCurrentQualityHeight]);
+
   const handleSheetTouchStart = (e: React.TouchEvent) => {
     touchStartYRef.current = e.touches[0].clientY;
     setSheetDragY(0);
@@ -776,7 +801,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video) return;
     if (playerState.isLive && shakaPlayerRef.current) {
       // Shaka live: Seek forward toward live edge (+10s)
-      const liveEdge = shakaPlayerRef.current.getPlayheadTimeAsDate();  // Fixed: define liveEdge
+      const liveEdge = shakaPlayerRef.current.getPlayheadTimeAsDate();
       const currentTime = shakaPlayerRef.current.getPlayheadTimeAsDate();
       const newTime = new Date(Math.min(liveEdge.getTime(), currentTime.getTime() + 10000));  // Clamp to live edge
       shakaPlayerRef.current.seek(newTime);
@@ -862,9 +887,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const getCurrentQualityLabel = () => {
-    if (playerState.currentQuality === -1) return 'Auto';
+    const height = playerState.currentQualityHeight;
+    if (playerState.currentQuality === -1) return `Auto (${height}p)`;
     const quality = playerState.availableQualities.find(q => q.id === playerState.currentQuality);
-    return quality ? `${quality.height}p` : 'Auto';
+    return quality ? `${quality.height}p` : `${height}p`;
+  };
+
+  const getCurrentAudioLabel = () => {
+    const track = playerState.availableAudioTracks.find(a => a.id === playerState.currentAudioTrack);
+    return track ? track.label : 'Default';
   };
 
   const getCurrentSpeedLabel = () => {
@@ -928,7 +959,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         centerButtonClass: 'w-20 h-20',
         centerIcon: 32,
         paddingClass: 'p-3',
-        gapClass: 'gap-3',
+        gapClass: 'gap-2',  // Smaller gap to prevent wrap
         textClass: 'text-base',
         progressBarClass: 'h-1.5',
         progressThumbClass: 'w-4 h-4',
@@ -1053,7 +1084,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
             
-            <div className={`flex items-center ${sizes.gapClass} flex-wrap justify-between flex-1 min-h-[40px]`}>
+            <div className={`flex items-center ${sizes.gapClass} flex-nowrap justify-between flex-1 min-h-[40px]`}>
               {!isMobile && (
                 <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0`}>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1143,17 +1174,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               )}
               
               {isMobile && (
-                <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0 flex-wrap justify-between`}>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
-                  className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
-                  data-testid="button-volume-mobile"
-                >
-                  {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : <Volume2 size={sizes.iconSmall} />}
-                </button>
+                <div className={`flex items-center ${sizes.gapClass} flex-1 min-w-0 flex-nowrap justify-between`}>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); toggleMute(); }} 
+                    className={`text-white hover:text-blue-300 transition-colors ${sizes.paddingClass} flex-shrink-0`}
+                    data-testid="button-volume-mobile"
+                  >
+                    {playerState.isMuted ? <VolumeX size={sizes.iconSmall} /> : <Volume2 size={sizes.iconSmall} />}
+                  </button>
+                  
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                    className={`w-16 ${sizes.progressBarClass} bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:${sizes.progressThumbClass} [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:${sizes.progressThumbClass} [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 flex-shrink-0`}
+                    data-testid="slider-volume-mobile"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
                 
                 {isFinite(playerState.duration) && playerState.duration > 0 && (
-                  <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-2 min-w-0`} data-testid="text-time-mobile">
+                  <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-1 min-w-0`} data-testid="text-time-mobile">
                     {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
                   </div>
                 )}
@@ -1276,21 +1320,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </button>
                   <button
                     onClick={() => { changeQuality(-1); }}
-                    className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                    className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                       playerState.currentQuality === -1 ? 'bg-white/20' : 'hover:bg-white/10'
                     }`}
                   >
-                    Auto
+                    <span>Auto</span>
+                    {playerState.currentQuality === -1 && <Check size={16} className="text-green-500 ml-auto" />}
                   </button>
                   {playerState.availableQualities.map((quality) => (
                     <button
                       key={quality.id}
                       onClick={() => { changeQuality(quality.id); }}
-                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                         playerState.currentQuality === quality.id ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      {quality.height}p
+                      <span>{quality.height}p</span>
+                      {playerState.currentQuality === quality.id && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                   ))}
                 </div>
@@ -1307,11 +1353,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <button
                       key={speed}
                       onClick={() => { changePlaybackSpeed(speed); }}
-                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                         videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      {speed === 1 ? 'Normal' : `${speed}x`}
+                      <span>{speed === 1 ? 'Normal' : `${speed}x`}</span>
+                      {videoRef.current?.playbackRate === speed && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                   ))}
                 </div>
@@ -1360,21 +1407,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   </button>
                   <button
                     onClick={() => { changeSubtitle(''); }}
-                    className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                    className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                       playerState.currentSubtitle === '' ? 'bg-white/20' : 'hover:bg-white/10'
                     }`}
                   >
-                    Off
+                    <span>Off</span>
+                    {playerState.currentSubtitle === '' && <Check size={16} className="text-green-500 ml-auto" />}
                   </button>
                   {playerState.availableSubtitles.map((subtitle) => (
                     <button
                       key={subtitle.id}
                       onClick={() => { changeSubtitle(subtitle.id); }}
-                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                         playerState.currentSubtitle === subtitle.id ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      {subtitle.label}
+                      <span>{subtitle.label}</span>
+                      {playerState.currentSubtitle === subtitle.id && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                   ))}
                 </div>
@@ -1392,11 +1441,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       <button
                         key={audioTrack.id}
                         onClick={() => { changeAudioTrack(audioTrack.id); }}
-                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                           playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                       >
-                        {audioTrack.label}
+                        <span>{audioTrack.label}</span>
+                        {playerState.currentAudioTrack === audioTrack.id && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))
                   ) : (
@@ -1447,7 +1497,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         </div>
                         <div className="flex items-center gap-2">
                           <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
-                            {playerState.currentQuality === -1 ? 'Auto' : ''} ({getCurrentQualityLabel()})
+                            {getCurrentQualityLabel()}
                           </span>
                           <ChevronRight size={16} className="text-white/70" />
                         </div>
@@ -1482,9 +1532,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       </div>
                       <div className="flex items-center gap-2">
                         <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
-                          {playerState.availableAudioTracks.length > 0 
-                            ? playerState.availableAudioTracks.find(a => a.id === playerState.currentAudioTrack)?.label || 'Default'
-                            : 'Default'}
+                          {getCurrentAudioLabel()}
                         </span>
                         <ChevronRight size={16} className="text-white/70" />
                       </div>
@@ -1517,21 +1565,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                     <button
                       onClick={() => { changeQuality(-1); }}
-                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                         playerState.currentQuality === -1 ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      Auto
+                      <span>Auto</span>
+                      {playerState.currentQuality === -1 && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                     {playerState.availableQualities.map((quality) => (
                       <button
                         key={quality.id}
                         onClick={() => { changeQuality(quality.id); }}
-                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                           playerState.currentQuality === quality.id ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                       >
-                        {quality.height}p
+                        <span>{quality.height}p</span>
+                        {playerState.currentQuality === quality.id && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1548,11 +1598,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       <button
                         key={speed}
                         onClick={() => { changePlaybackSpeed(speed); }}
-                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                           videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                       >
-                        {speed === 1 ? 'Normal' : `${speed}x`}
+                        <span>{speed === 1 ? 'Normal' : `${speed}x`}</span>
+                        {videoRef.current?.playbackRate === speed && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1567,21 +1618,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                     <button
                       onClick={() => { changeSubtitle(''); }}
-                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                      className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                         playerState.currentSubtitle === '' ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                     >
-                      Off
+                      <span>Off</span>
+                      {playerState.currentSubtitle === '' && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                     {playerState.availableSubtitles.map((subtitle) => (
                       <button
                         key={subtitle.id}
                         onClick={() => { changeSubtitle(subtitle.id); }}
-                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                        className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                           playerState.currentSubtitle === subtitle.id ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                       >
-                        {subtitle.label}
+                        <span>{subtitle.label}</span>
+                        {playerState.currentSubtitle === subtitle.id && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1599,11 +1652,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         <button
                           key={audioTrack.id}
                           onClick={() => { changeAudioTrack(audioTrack.id); }}
-                          className={`w-full text-left px-12 py-2 text-sm text-white transition-colors ${
+                          className={`w-full text-left px-12 py-2 text-sm text-white transition-colors flex items-center justify-between ${
                             playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
                           }`}
                         >
-                          {audioTrack.label}
+                          <span>{audioTrack.label}</span>
+                          {playerState.currentAudioTrack === audioTrack.id && <Check size={16} className="text-green-500 ml-auto" />}
                         </button>
                       ))
                     ) : (
@@ -1704,23 +1758,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                     <button
                       onClick={() => { changeQuality(-1); }}
-                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                      className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                         playerState.currentQuality === -1 ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                       style={{ fontSize: '15px', fontWeight: 400 }}
                     >
-                      Auto
+                      <span>Auto</span>
+                      {playerState.currentQuality === -1 && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                     {playerState.availableQualities.map((quality) => (
                       <button
                         key={quality.id}
                         onClick={() => { changeQuality(quality.id); }}
-                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                           playerState.currentQuality === quality.id ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                         style={{ fontSize: '15px', fontWeight: 400 }}
                       >
-                        {quality.height}p
+                        <span>{quality.height}p</span>
+                        {playerState.currentQuality === quality.id && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1737,12 +1793,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       <button
                         key={speed}
                         onClick={() => { changePlaybackSpeed(speed); }}
-                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                           videoRef.current?.playbackRate === speed ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                         style={{ fontSize: '15px', fontWeight: 400 }}
                       >
-                        {speed === 1 ? 'Normal' : `${speed}x`}
+                        <span>{speed === 1 ? 'Normal' : `${speed}x`}</span>
+                        {videoRef.current?.playbackRate === speed && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1757,23 +1814,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     </button>
                     <button
                       onClick={() => { changeSubtitle(''); }}
-                      className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                      className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                         playerState.currentSubtitle === '' ? 'bg-white/20' : 'hover:bg-white/10'
                       }`}
                       style={{ fontSize: '15px', fontWeight: 400 }}
                     >
-                      Off
+                      <span>Off</span>
+                      {playerState.currentSubtitle === '' && <Check size={16} className="text-green-500 ml-auto" />}
                     </button>
                     {playerState.availableSubtitles.map((subtitle) => (
                       <button
                         key={subtitle.id}
                         onClick={() => { changeSubtitle(subtitle.id); }}
-                        className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                        className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                           playerState.currentSubtitle === subtitle.id ? 'bg-white/20' : 'hover:bg-white/10'
                         }`}
                         style={{ fontSize: '15px', fontWeight: 400 }}
                       >
-                        {subtitle.label}
+                        <span>{subtitle.label}</span>
+                        {playerState.currentSubtitle === subtitle.id && <Check size={16} className="text-green-500 ml-auto" />}
                       </button>
                     ))}
                   </div>
@@ -1791,12 +1850,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         <button
                           key={audioTrack.id}
                           onClick={() => { changeAudioTrack(audioTrack.id); }}
-                          className={`w-full text-left px-14 py-3 text-white transition-colors ${
+                          className={`w-full text-left px-14 py-3 text-white transition-colors flex items-center justify-between ${
                             playerState.currentAudioTrack === audioTrack.id ? 'bg-white/20' : 'hover:bg-white/10'
                           }`}
                           style={{ fontSize: '15px', fontWeight: 400 }}
                         >
-                          {audioTrack.label}
+                          <span>{audioTrack.label}</span>
+                          {playerState.currentAudioTrack === audioTrack.id && <Check size={16} className="text-green-500 ml-auto" />}
                         </button>
                       ))
                     ) : (
