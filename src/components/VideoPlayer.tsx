@@ -1102,17 +1102,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     max="100"
                     value={volume}
                     onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                    className={`w-24 ${sizes.progressBarClass} bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:${sizes.progressThumbClass} [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:${sizes.progressThumbClass} [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 flex-shrink-0`}
+                    className={`
+                      flex-1 min-w-0 ${sizes.progressBarClass}
+                      bg-white/30 rounded-full appearance-none cursor-pointer
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:bg-white
+                      [&::-moz-range-thumb]:${sizes.progressThumbClass}
+                      [&::-moz-range-thumb]:rounded-full
+                      [&::-moz-range-thumb]:bg-white
+                      [&::-moz-range-thumb]:border-0
+                    `}
                     data-testid="slider-volume"
                     onClick={(e) => e.stopPropagation()}
                   />
                 </div>
                 
-                {isFinite(playerState.duration) && playerState.duration > 0 && (
-                  <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-2 min-w-0`} data-testid="text-time">
-                    {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                  </div>
-                )}
+                <div
+                  className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-2 min-w-0`}
+                  data-testid="text-time"
+                >
+                  {/* LIVE streams */}
+                  {playerState.isLive ? (
+                    <>LIVE</>
+                  ) : (
+                    /* VOD – show current / total */
+                    <>
+                      {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                    </>
+                  )}
+                </div>
                 
                 <button 
                   onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
@@ -1190,17 +1210,37 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     max="100"
                     value={volume}
                     onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                    className={`w-16 ${sizes.progressBarClass} bg-white/30 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:${sizes.progressThumbClass} [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-moz-range-thumb]:${sizes.progressThumbClass} [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0 flex-shrink-0`}
+                    className={`
+                      flex-1 min-w-0 ${sizes.progressBarClass}
+                      bg-white/30 rounded-full appearance-none cursor-pointer
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:${sizes.progressThumbClass}
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:bg-white
+                      [&::-moz-range-thumb]:${sizes.progressThumbClass}
+                      [&::-moz-range-thumb]:rounded-full
+                      [&::-moz-range-thumb]:bg-white
+                      [&::-moz-range-thumb]:border-0
+                    `}
                     data-testid="slider-volume-mobile"
                     onClick={(e) => e.stopPropagation()}
                   />
                 </div>
                 
-                {isFinite(playerState.duration) && playerState.duration > 0 && (
-                  <div className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-1 min-w-0`} data-testid="text-time-mobile">
-                    {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
-                  </div>
-                )}
+                <div
+                  className={`text-white ${sizes.textClass} whitespace-nowrap truncate flex-shrink mx-1 min-w-0`}
+                  data-testid="text-time-mobile"
+                >
+                  {/* LIVE streams */}
+                  {playerState.isLive ? (
+                    <>LIVE</>
+                  ) : (
+                    /* VOD – show current / total */
+                    <>
+                      {formatTime(playerState.currentTime)} / {formatTime(playerState.duration)}
+                    </>
+                  )}
+                </div>
                 
                 <button 
                   onClick={(e) => { e.stopPropagation(); seekBackward(); }} 
